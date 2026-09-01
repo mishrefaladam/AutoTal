@@ -1,0 +1,408 @@
+// AutoTal – Prisma Schema
+//
+// Konventionen:
+// - Geldbeträge werden als Integer in Cent gespeichert (`*Cents`). Damit sind
+//   Preise exakt und über die Server/Client-Grenze JSON-serialisierbar.
+// - Prozentsätze werden als Integer in Basispunkten gespeichert (`*Bp`),
+//   z. B. 599 = 5,99 %. Konvertierung siehe src/lib/money.ts.
+// - Formulardaten (Kontakt, Probefahrt, Fahrzeuganfrage, Ankauf) werden
+//   BEWUSST NICHT persistiert. Sie gehen ausschließlich per Resend raus.
+//   Siehe src/modules/forms. Bitte kein "Leads"-Modell ergänzen, ohne die
+//   Datenschutzerklärung anzupassen.
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ---------------------------------------------------------------------------
+// Fahrzeuge
+// ---------------------------------------------------------------------------
+
+enum FuelType {
+  PETROL
+  DIESEL
+  HYBRID
+  PLUGIN_HYBRID
+  ELECTRIC
+  LPG
+  CNG
+  HYDROGEN
+  OTHER
+}
+
+enum TransmissionType {
+  MANUAL
+  AUTOMATIC
+  SEMI_AUTOMATIC
+}
+
+enum BodyType {
+  SMALL_CAR
+  SEDAN
+  ESTATE
+  SUV
+  COUPE
+  CONVERTIBLE
+  VAN
+  TRANSPORTER
+  PICKUP
+  OTHER
+}
+
+enum VehicleCondition {
+  NEW
+  USED
+  DEMO
+  ANNUAL_CAR
+}
+
+/// Ein Fahrzeug im Bestand. Wird über einen VehicleProvider synchronisiert –
+/// `externalSource` + `externalId` identifizieren den Datensatz beim Anbieter.
+model Vehicle {
+  id   String @id @default(cuid())
+  /// URL-Segment für /fahrzeuge/[slug]
+  slug String @unique
+
+  // -- Provider-Herkunft (US-06) -------------------------------------------
+  /// Kennung des VehicleProvider, z. B. "mock", "autopro24", "willhaben"
+  externalSource String
+  /// ID des Fahrzeugs beim Anbieter
+  externalId     String
+  lastSyncedAt   DateTime @default(now())
+  /// false = verkauft/entfernt, wird nicht mehr öffentlich angezeigt (US-07)
+  active         Boolean  @default(true)
+
+  // -- Stammdaten ------------------------------------------------------------
+  make    String
+  model   String
+  variant String?
+
+  priceCents Int
+  /// Vorsteuerabzugsberechtigt (österreichische Händlerpraxis)
+  vatDeductible Boolean @default(false)
+
+  mileageKm         Int
+  firstRegistration DateTime?
+  fuel              FuelType
+  transmission      TransmissionType
+  bodyType          BodyType         @default(OTHER)
+  condition         VehicleCondition @default(USED)
+
+  powerKw        Int?
+  displacementCcm Int?
+  color          String?
+  doors          Int?
+  seats          Int?
+  previousOwners Int?
+  /// §57a-Begutachtung ("Pickerl") gültig bis
+  inspectionValidUntil DateTime?
+
+  description String  @default("")
+  /// Ausstattungsliste (US-05)
+  features    String[] @default([])
+
+  images       VehicleImage[]
+  socialDrafts SocialDraft[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([externalSource, externalId])
+  @@index([active, priceCents])
+  @@index([active, createdAt])
+  @@index([active, make, model])
+  @@index([active, fuel])
+  @@index([active, transmission])
+  @@index([active, mileageKm])
+  @@index([active, firstRegistration])
+}
+
+model VehicleImage {
+  id        String  @id @default(cuid())
+  vehicleId String
+  vehicle   Vehicle @relation(fields: [vehicleId], references: [id], onDelete: Cascade)
+
+  url      String
+  alt      String?
+  position Int     @default(0)
+  width    Int?
+  height   Int?
+  /// ID des Bildes beim Anbieter, für idempotente Syncs
+  externalId String?
+
+  @@unique([vehicleId, url])
+  @@index([vehicleId, position])
+}
+
+// ---------------------------------------------------------------------------
+// Synchronisierung (US-27)
+// ---------------------------------------------------------------------------
+
+enum SyncStatus {
+  RUNNING
+  SUCCESS
+  PARTIAL
+  FAILED
+}
+
+model SyncRun {
+  id     String     @id @default(cuid())
+  source String
+  status SyncStatus @default(RUNNING)
+
+  startedAt  DateTime  @default(now())
+  finishedAt DateTime?
+
+  vehiclesFound       Int @default(0)
+  vehiclesCreated     Int @default(0)
+  vehiclesUpdated     Int @default(0)
+  vehiclesDeactivated Int @default(0)
+
+  /// Für den Admin verständliche Fehlermeldung – keine Secrets, keine Stacktraces
+  errorMessage String?
+  /// "manual" | "cron" | "startup"
+  triggeredBy  String  @default("manual")
+
+  @@index([source, startedAt])
+  @@index([startedAt])
+}
+
+// ---------------------------------------------------------------------------
+// Unternehmensdaten (US-15, US-16)
+// ---------------------------------------------------------------------------
+
+/// Singleton – es existiert genau eine Zeile mit id = "default".
+model CompanySettings {
+  id String @id @default("default")
+
+  legalName   String
+  displayName String
+  tagline     String?
+  aboutText   String  @default("")
+
+  street     String
+  postalCode String
+  city       String
+  country    String @default("Österreich")
+
+  phone          String
+  /// Nur Ziffern inkl. Ländervorwahl, z. B. "436641234567" (US-10)
+  whatsappNumber String?
+  email          String
+
+  /// UID-Nummer
+  vatId                   String?
+  commercialRegisterNumber String?
+  commercialRegisterCourt  String?
+
+  contactPersonName  String?
+  contactPersonRole  String?
+  contactPersonEmail String?
+  contactPersonPhone String?
+
+  latitude  Float?
+  longitude Float?
+
+  openingHours OpeningHour[]
+  socialLinks  SocialLink[]
+
+  updatedAt DateTime @updatedAt
+
+  @@map("company_settings")
+}
+
+/// Ein Öffnungszeiten-Slot. Mehrere Zeilen pro Wochentag sind erlaubt
+/// (z. B. Vormittag/Nachmittag mit Mittagspause).
+model OpeningHour {
+  id        String          @id @default(cuid())
+  companyId String
+  company   CompanySettings @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  /// 1 = Montag … 7 = Sonntag (ISO-8601)
+  weekday  Int
+  /// "HH:mm", null wenn geschlossen
+  opensAt  String?
+  closesAt String?
+  closed   Boolean @default(false)
+  note     String?
+  position Int     @default(0)
+
+  @@index([companyId, weekday, position])
+}
+
+model SocialLink {
+  id        String          @id @default(cuid())
+  companyId String
+  company   CompanySettings @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  /// "instagram" | "facebook" | "tiktok" | "youtube" | "linkedin" | …
+  platform String
+  url      String
+  label    String?
+  position Int     @default(0)
+  active   Boolean @default(true)
+
+  @@unique([companyId, platform])
+  @@index([companyId, position])
+}
+
+// ---------------------------------------------------------------------------
+// Finanzierung (US-12, US-13, US-17)
+// ---------------------------------------------------------------------------
+
+/// Singleton – Standardwerte für den unverbindlichen Finanzierungsrechner.
+model FinanceConfig {
+  id String @id @default("default")
+
+  /// Sollzinssatz p. a. in Basispunkten, z. B. 599 = 5,99 %
+  defaultInterestRateBp Int @default(599)
+  minInterestRateBp     Int @default(0)
+  maxInterestRateBp     Int @default(1500)
+
+  minTermMonths     Int @default(12)
+  maxTermMonths     Int @default(96)
+  defaultTermMonths Int @default(60)
+
+  /// Anzahlung in Basispunkten des Fahrzeugpreises, 2000 = 20 %
+  minDownPaymentBp     Int @default(0)
+  maxDownPaymentBp     Int @default(8000)
+  defaultDownPaymentBp Int @default(2000)
+
+  /// Schlussrate (Ballon) in Basispunkten des Fahrzeugpreises
+  minBalloonBp     Int @default(0)
+  maxBalloonBp     Int @default(5000)
+  defaultBalloonBp Int @default(0)
+
+  /// Pflichthinweis: unverbindlich, keine Kreditzusage
+  disclaimer String @default("")
+
+  updatedAt DateTime @updatedAt
+
+  @@map("finance_config")
+}
+
+model FinanceProvider {
+  id          String  @id @default(cuid())
+  name        String
+  description String?
+  logoUrl     String?
+  websiteUrl  String?
+  /// Optionaler partnerspezifischer Zinssatz in Basispunkten
+  interestRateBp Int?
+  position    Int     @default(0)
+  active      Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([active, position])
+}
+
+// ---------------------------------------------------------------------------
+// KI / Social Media (EPIC 7 + 8)
+// ---------------------------------------------------------------------------
+
+enum SocialDraftStatus {
+  DRAFT
+  APPROVED
+  PUBLISHED
+  FAILED
+}
+
+enum SocialPlatform {
+  INSTAGRAM
+}
+
+model SocialDraft {
+  id        String  @id @default(cuid())
+  vehicleId String
+  vehicle   Vehicle @relation(fields: [vehicleId], references: [id], onDelete: Cascade)
+
+  platform SocialPlatform    @default(INSTAGRAM)
+  status   SocialDraftStatus @default(DRAFT)
+
+  caption   String
+  hashtags  String[] @default([])
+  imageUrls String[] @default([])
+
+  /// Nachvollziehbarkeit der Generierung
+  generatedByModel String?
+  generatedAt      DateTime?
+
+  approvedAt     DateTime?
+  approvedByUser String?
+
+  publishedAt       DateTime?
+  externalPostId    String?
+  externalPermalink String?
+
+  /// Für den Admin verständliche Fehlermeldung (US-24)
+  errorMessage  String?
+  retryCount    Int       @default(0)
+  lastAttemptAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([status, createdAt])
+  @@index([vehicleId])
+}
+
+// ---------------------------------------------------------------------------
+// Integrationen / Admin
+// ---------------------------------------------------------------------------
+
+/// Serverseitig gespeicherte Zugangsdaten externer Dienste.
+/// `accessToken` wird mit AES-256-GCM verschlüsselt abgelegt
+/// (siehe src/lib/crypto.ts). Wird NIE an den Client ausgeliefert.
+model IntegrationCredential {
+  id       String @id @default(cuid())
+  /// "instagram"
+  provider String @unique
+
+  accessTokenEncrypted String
+  externalAccountId    String?
+  externalUsername     String?
+  scopes               String[] @default([])
+
+  expiresAt   DateTime?
+  connectedAt DateTime  @default(now())
+  active      Boolean   @default(true)
+
+  updatedAt DateTime @updatedAt
+}
+
+enum AdminRole {
+  ADMIN
+  EDITOR
+}
+
+model AdminUser {
+  id           String    @id @default(cuid())
+  email        String    @unique
+  name         String
+  passwordHash String
+  role         AdminRole @default(ADMIN)
+  active       Boolean   @default(true)
+
+  lastLoginAt DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+}
+
+/// Fixed-Window-Zähler für das Rate Limiting öffentlicher Formulare.
+/// DB-gestützt, damit es auch auf serverless Instanzen greift.
+model RateLimitCounter {
+  /// "<bucket>:<identifier>"
+  key         String   @id
+  count       Int      @default(0)
+  windowStart DateTime @default(now())
+  expiresAt   DateTime
+
+  @@index([expiresAt])
+}
