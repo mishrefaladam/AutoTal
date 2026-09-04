@@ -64,43 +64,40 @@ export async function checkRateLimit(
   const key = `${rule.bucket}:${identifier}`;
   const now = new Date();
   const windowMs = rule.windowSeconds * 1000;
+  const expiresAt = new Date(now.getTime() + windowMs);
 
   try {
-    // Abgelaufenes Fenster zurücksetzen, sonst hochzählen – in einem
-    // atomaren Upsert-Zyklus.
-    const existing = await prisma.rateLimitCounter.findUnique({ where: { key } });
+    // Ein einzelnes PostgreSQL-Statement verhindert Race Conditions bei
+    // parallelen Requests derselben IP.
+    const rows = await prisma.$queryRaw<
+      { count: number; expiresAt: Date }[]
+    >`
+      INSERT INTO "RateLimitCounter" ("key", "count", "windowStart", "expiresAt")
+      VALUES (${key}, 1, ${now}, ${expiresAt})
+      ON CONFLICT ("key") DO UPDATE SET
+        "count" = CASE
+          WHEN "RateLimitCounter"."expiresAt" <= ${now} THEN 1
+          ELSE "RateLimitCounter"."count" + 1
+        END,
+        "windowStart" = CASE
+          WHEN "RateLimitCounter"."expiresAt" <= ${now} THEN ${now}
+          ELSE "RateLimitCounter"."windowStart"
+        END,
+        "expiresAt" = CASE
+          WHEN "RateLimitCounter"."expiresAt" <= ${now} THEN ${expiresAt}
+          ELSE "RateLimitCounter"."expiresAt"
+        END
+      RETURNING "count", "expiresAt"
+    `;
 
-    if (!existing || existing.expiresAt <= now) {
-      await prisma.rateLimitCounter.upsert({
-        where: { key },
-        create: {
-          key,
-          count: 1,
-          windowStart: now,
-          expiresAt: new Date(now.getTime() + windowMs),
-        },
-        update: {
-          count: 1,
-          windowStart: now,
-          expiresAt: new Date(now.getTime() + windowMs),
-        },
-      });
-
-      return {
-        allowed: true,
-        remaining: rule.limit - 1,
-        retryAfterSeconds: rule.windowSeconds,
-      };
+    const updated = rows[0];
+    if (!updated) {
+      throw new Error("Rate-Limit-Zähler konnte nicht aktualisiert werden.");
     }
-
-    const updated = await prisma.rateLimitCounter.update({
-      where: { key },
-      data: { count: { increment: 1 } },
-    });
 
     const retryAfterSeconds = Math.max(
       1,
-      Math.ceil((existing.expiresAt.getTime() - now.getTime()) / 1000),
+      Math.ceil((updated.expiresAt.getTime() - now.getTime()) / 1000),
     );
 
     if (updated.count > rule.limit) {

@@ -56,7 +56,7 @@ export function PrivacyConsentField<
           verarbeitet werden. Details in der{" "}
           <Link
             href="/datenschutz"
-            className="text-brand underline underline-offset-2"
+            className="text-brand-strong underline underline-offset-2"
           >
             Datenschutzerklärung
           </Link>

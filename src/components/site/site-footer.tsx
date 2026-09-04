@@ -21,7 +21,7 @@ export function SiteFooter({ company }: { company: CompanyDto }) {
         <div className="grid gap-10 md:grid-cols-2 lg:grid-cols-4 lg:gap-8">
           {/* Marke und Kurzbeschreibung */}
           <div className="lg:pr-6">
-            <Logo name={company.displayName} className="text-ink-foreground" />
+            <Logo name={company.displayName} className="h-16" />
 
             {company.tagline && (
               <p className="text-ink-muted mt-4 text-sm leading-relaxed">

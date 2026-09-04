@@ -11,7 +11,6 @@ import {
   getFinanceConfig,
   listFinanceProviders,
 } from "@/modules/financing/repository";
-import { listLatestVehicles } from "@/modules/vehicles/repository";
 
 /**
  * Finanzierungsseite (US-12, US-13).
@@ -33,18 +32,16 @@ export const metadata: Metadata = {
 };
 
 export default async function FinancingPage() {
-  const [config, providers, vehicles] = await Promise.all([
+  const [config, providers] = await Promise.all([
     getFinanceConfig(),
     listFinanceProviders(),
-    listLatestVehicles(12),
   ]);
 
-  // Medianpreis des Bestands als Startwert – repräsentativer als ein
-  // ausgedachter Rundbetrag.
-  const prices = vehicles.map((vehicle) => vehicle.priceCents).sort((a, b) => a - b);
-  const initialPriceCents = prices.length
-    ? prices[Math.floor(prices.length / 2)]
-    : 2_500_000;
+  // Startwert des Rechners. Bewusst ein fester, plausibler Betrag: Der
+  // Fahrzeugbestand liegt bei willhaben und ist für die Website nicht
+  // auslesbar. Aus dem Widget Daten zu ziehen wäre Scraping – das ist
+  // ausgeschlossen. Der Wert lässt sich im Rechner frei ändern.
+  const initialPriceCents = 2_500_000;
 
   return (
     <>
@@ -164,7 +161,7 @@ export default async function FinancingPage() {
                         className="h-9 w-auto object-contain"
                       />
                     ) : (
-                      <span className="bg-brand-subtle text-brand flex size-10 items-center justify-center rounded-lg">
+                      <span className="bg-brand-subtle text-brand-strong flex size-10 items-center justify-center rounded-lg">
                         <Landmark className="size-5" aria-hidden="true" />
                       </span>
                     )}
@@ -175,7 +172,7 @@ export default async function FinancingPage() {
                   </h3>
 
                   {provider.interestRateBp !== null && (
-                    <p className="text-brand tabular mt-1 text-sm font-semibold">
+                    <p className="text-brand-strong tabular mt-1 text-sm font-semibold">
                       ab {formatPercent(provider.interestRateBp)} Sollzins p. a.
                     </p>
                   )}
@@ -191,7 +188,7 @@ export default async function FinancingPage() {
                       href={provider.websiteUrl}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="text-brand mt-5 inline-flex items-center gap-1.5 text-sm font-medium hover:underline"
+                      className="text-brand-strong mt-5 inline-flex items-center gap-1.5 text-sm font-medium hover:underline"
                     >
                       Zum Partner
                       <ExternalLink className="size-3.5" aria-hidden="true" />

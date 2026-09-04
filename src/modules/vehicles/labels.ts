@@ -93,14 +93,6 @@ export const BODY_TYPE_ORDER: BodyType[] = [
   "OTHER",
 ];
 
-export const SORT_LABELS = {
-  newest: "Neu im Bestand",
-  "price-asc": "Preis aufsteigend",
-  "price-desc": "Preis absteigend",
-  "mileage-asc": "Kilometerstand aufsteigend",
-  "registration-desc": "Erstzulassung, neueste zuerst",
-} as const;
-
 const WEEKDAY_LABELS = [
   "Montag",
   "Dienstag",

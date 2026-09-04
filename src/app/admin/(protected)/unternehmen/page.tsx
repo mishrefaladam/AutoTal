@@ -77,6 +77,10 @@ export default async function AdminCompanyPage() {
     commercialRegisterNumber: company?.commercialRegisterNumber ?? "",
     commercialRegisterCourt: company?.commercialRegisterCourt ?? "",
 
+    businessPurpose: company?.businessPurpose ?? "",
+    supervisoryAuthority: company?.supervisoryAuthority ?? "",
+    gisaNumber: company?.gisaNumber ?? "",
+
     contactPersonName: company?.contactPersonName ?? "",
     contactPersonRole: company?.contactPersonRole ?? "",
     contactPersonEmail: company?.contactPersonEmail ?? "",

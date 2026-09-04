@@ -77,7 +77,7 @@ export default async function SellCarPage() {
           {BENEFITS.map((benefit) => (
             <div key={benefit.title} className="flex gap-3.5 px-1 py-6">
               <benefit.icon
-                className="text-brand mt-0.5 size-5 shrink-0"
+                className="text-brand-strong mt-0.5 size-5 shrink-0"
                 aria-hidden="true"
               />
               <div>

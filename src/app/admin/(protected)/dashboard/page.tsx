@@ -20,9 +20,6 @@ import { prisma } from "@/lib/prisma";
 import { cn } from "@/lib/utils";
 import { requireAdmin } from "@/modules/admin/auth";
 import { getCompany } from "@/modules/company/repository";
-import { formatDateTime } from "@/modules/vehicles/labels";
-import { countActiveVehicles } from "@/modules/vehicles/repository";
-import { getLatestSyncRun } from "@/modules/vehicles/sync";
 
 export const metadata: Metadata = { title: "Übersicht" };
 
@@ -33,26 +30,20 @@ export const metadata: Metadata = { title: "Übersicht" };
  * Fahrzeug-Sync? Sind alle Dienste eingerichtet? Liegt etwas zur Freigabe an?
  */
 export default async function AdminDashboardPage() {
-  const [
-    session,
-    company,
-    vehicleCount,
-    inactiveCount,
-    latestSync,
-    draftCounts,
-    instagram,
-  ] = await Promise.all([
-    requireAdmin(),
-    getCompany(),
-    countActiveVehicles(),
-    prisma.vehicle.count({ where: { active: false } }),
-    getLatestSyncRun(),
-    prisma.socialDraft.groupBy({ by: ["status"], _count: { _all: true } }),
-    getInstagramConnection(),
-  ]);
+  const [session, company, socialVehicleCount, draftCounts, instagram] =
+    await Promise.all([
+      requireAdmin(),
+      getCompany(),
+      prisma.vehicle.count(),
+      prisma.socialDraft.groupBy({ by: ["status"], _count: { _all: true } }),
+      getInstagramConnection(),
+    ]);
 
   const countByStatus = Object.fromEntries(
-    draftCounts.map((entry) => [entry.status, entry._count._all]),
+    draftCounts.map((entry: { status: string; _count: { _all: number } }) => [
+      entry.status,
+      entry._count._all,
+    ]),
   ) as Partial<Record<"DRAFT" | "APPROVED" | "PUBLISHED" | "FAILED", number>>;
 
   const services = [
@@ -76,8 +67,6 @@ export default async function AdminDashboardPage() {
     },
   ];
 
-  const syncFailed = latestSync?.status === "FAILED";
-
   return (
     <>
       <AdminPageHeader
@@ -89,13 +78,9 @@ export default async function AdminDashboardPage() {
       <div className="mb-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <StatCard
           icon={Car}
-          label="Fahrzeuge online"
-          value={vehicleCount}
-          hint={
-            inactiveCount > 0
-              ? `${inactiveCount} deaktiviert (verkauft oder entfernt)`
-              : undefined
-          }
+          label="Fahrzeuge erfasst"
+          value={socialVehicleCount}
+          hint="Datenbasis für Social-Media-Beiträge"
         />
 
         <StatCard
@@ -122,62 +107,32 @@ export default async function AdminDashboardPage() {
       </div>
 
       <div className="space-y-8">
-        {/* Letzte Synchronisierung (US-27) */}
+        {/* Fahrzeugbörse */}
         <AdminCard
-          title="Fahrzeugsynchronisierung"
+          title="Fahrzeugbörse"
           action={
             <Button asChild variant="outline" size="xl">
               <Link href="/admin/integrationen">
-                Protokoll ansehen
+                Integrationen
                 <ArrowRight data-icon="inline-end" aria-hidden="true" />
               </Link>
             </Button>
           }
         >
-          {latestSync ? (
-            <div
-              className={cn(
-                "flex flex-wrap items-start gap-4 rounded-lg border p-4",
-                syncFailed
-                  ? "border-destructive/30 bg-destructive/8"
-                  : "border-border",
-              )}
-            >
-              {syncFailed ? (
-                <TriangleAlert
-                  className="text-destructive mt-0.5 size-5 shrink-0"
-                  aria-hidden="true"
-                />
-              ) : (
-                <CircleCheck
-                  className="text-success mt-0.5 size-5 shrink-0"
-                  aria-hidden="true"
-                />
-              )}
-
-              <div className="min-w-0 flex-1">
-                <p className="font-medium">
-                  Letzter Lauf: {formatDateTime(latestSync.startedAt)}
-                </p>
-                <p className="text-muted-foreground tabular mt-1 text-sm">
-                  Quelle {latestSync.source} · {latestSync.vehiclesFound} gefunden
-                  · {latestSync.vehiclesCreated} neu ·{" "}
-                  {latestSync.vehiclesUpdated} aktualisiert ·{" "}
-                  {latestSync.vehiclesDeactivated} deaktiviert
-                </p>
-
-                {latestSync.errorMessage && (
-                  <p className="text-destructive mt-2 text-sm leading-relaxed">
-                    {latestSync.errorMessage}
-                  </p>
-                )}
-              </div>
+          <div className="border-border flex flex-wrap items-start gap-4 rounded-lg border p-4">
+            <CircleCheck
+              className="text-success mt-0.5 size-5 shrink-0"
+              aria-hidden="true"
+            />
+            <div className="min-w-0 flex-1">
+              <p className="font-medium">Wird von willhaben eingebettet</p>
+              <p className="text-muted-foreground mt-1 text-sm leading-relaxed">
+                Fahrzeuge werden auf willhaben gepflegt und erscheinen dort
+                unmittelbar auch auf der Website. Auf dieser Seite ist dafür
+                nichts zu tun.
+              </p>
             </div>
-          ) : (
-            <p className="text-muted-foreground text-sm">
-              Es wurde noch keine Synchronisierung durchgeführt.
-            </p>
-          )}
+          </div>
         </AdminCard>
 
         {/* Dienste */}
@@ -225,8 +180,14 @@ export default async function AdminDashboardPage() {
 
         {/* Schnellzugriff */}
         <AdminCard title="Schnellzugriff">
-          <div className="grid gap-3 sm:grid-cols-3">
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
             {[
+              {
+                href: "/admin/fahrzeuge",
+                icon: Car,
+                label: "Fahrzeuge",
+                hint: "Datenbasis für Social Media",
+              },
               {
                 href: "/admin/unternehmen",
                 icon: Building2,
@@ -251,7 +212,7 @@ export default async function AdminDashboardPage() {
                 href={item.href}
                 className="border-border hover:border-brand/40 hover:bg-muted/40 group flex flex-col gap-2 rounded-lg border p-4 transition-colors focus-visible:ring-3 focus-visible:ring-ring/50 focus-visible:outline-none"
               >
-                <item.icon className="text-brand size-5" aria-hidden="true" />
+                <item.icon className="text-brand-strong size-5" aria-hidden="true" />
                 <span className="font-medium">{item.label}</span>
                 <span className="text-muted-foreground text-sm">{item.hint}</span>
               </Link>

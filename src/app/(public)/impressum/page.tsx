@@ -9,11 +9,15 @@ import { getCompany } from "@/modules/company/repository";
  * Pflichtangaben nach § 5 ECG, § 63 GewO und § 25 MedienG. Alle Angaben
  * stammen aus den unter /admin/unternehmen gepflegten Daten.
  *
+ * Gewerbewortlaut, Aufsichtsbehörde und GISA-Zahl stammen aus dem
+ * GISA-Auszug und werden unter /admin/unternehmen gepflegt. Fehlt eine
+ * Angabe, entfällt die Zeile – es wird nichts erfunden.
+ *
  * ACHTUNG (Rechtliches): Diese Seite bildet die üblichen Pflichtangaben ab,
  * ersetzt aber keine rechtliche Prüfung. Vor dem Livegang bitte durch die
  * Wirtschaftskammer oder eine Rechtsanwältin/einen Rechtsanwalt gegenprüfen
- * lassen – insbesondere Gewerbewortlaut, Aufsichtsbehörde, Kammer­zugehörigkeit
- * und die anwendbaren Rechtsvorschriften.
+ * lassen – insbesondere die Kammerzugehörigkeit, die hier noch pauschal
+ * angegeben ist.
  */
 
 export const revalidate = 3600;
@@ -41,6 +45,7 @@ export default async function ImprintPage() {
     { label: "UID-Nummer", value: company.vatId },
     { label: "Firmenbuchnummer", value: company.commercialRegisterNumber },
     { label: "Firmenbuchgericht", value: company.commercialRegisterCourt },
+    { label: "GISA-Zahl", value: company.gisaNumber },
   ].filter((entry) => entry.value);
 
   return (
@@ -89,61 +94,66 @@ export default async function ImprintPage() {
           </dl>
         </section>
 
-        <section aria-labelledby="gewerbe" className="mt-12 space-y-4 text-sm leading-relaxed">
-          <h2
-            id="gewerbe"
-            className="font-display text-xl font-bold tracking-tight"
+        {(company.businessPurpose || company.supervisoryAuthority) && (
+          <section
+            aria-labelledby="gewerbe"
+            className="mt-12 space-y-4 text-sm leading-relaxed"
           >
-            Unternehmensgegenstand und Behörden
-          </h2>
+            <h2
+              id="gewerbe"
+              className="font-display text-xl font-bold tracking-tight"
+            >
+              Unternehmensgegenstand und Behörden
+            </h2>
 
-          {/*
-            TODO(rechtliches): Die folgenden Angaben sind vom Autohaus zu
-            bestätigen bzw. zu ergänzen:
-              - exakter Gewerbewortlaut laut Gewerberegister
-              - zuständige Bezirkshauptmannschaft / Magistrat
-              - Kammerzugehörigkeit und Fachgruppe
-            Bis dahin bleibt dieser Abschnitt bewusst allgemein gehalten und
-            wird NICHT als geprüft ausgegeben.
-          */}
-          <dl className="space-y-4">
-            <div>
-              <dt className="text-muted-foreground">Unternehmensgegenstand</dt>
-              <dd className="mt-0.5 font-medium">
-                Handel mit Kraftfahrzeugen
-              </dd>
-            </div>
+            {/*
+              Diese Angaben kommen aus dem GISA-Auszug und werden unter
+              /admin/unternehmen gepflegt – nicht hier hartkodiert. Ein
+              Tippfehler im Impressum darf kein Deployment erfordern.
+              Fehlt eine Angabe, entfällt die Zeile, statt einen erfundenen
+              Wert anzuzeigen.
+            */}
+            <dl className="space-y-4">
+              {company.businessPurpose && (
+                <div>
+                  <dt className="text-muted-foreground">Gewerbewortlaut</dt>
+                  <dd className="mt-0.5 font-medium">{company.businessPurpose}</dd>
+                </div>
+              )}
 
-            <div>
-              <dt className="text-muted-foreground">Kammerzugehörigkeit</dt>
-              <dd className="mt-0.5 font-medium">
-                Wirtschaftskammer Österreich, Fachgruppe Fahrzeughandel
-              </dd>
-            </div>
+              <div>
+                <dt className="text-muted-foreground">Kammerzugehörigkeit</dt>
+                <dd className="mt-0.5 font-medium">
+                  Wirtschaftskammer Österreich, Fachgruppe Fahrzeughandel
+                </dd>
+              </div>
 
-            <div>
-              <dt className="text-muted-foreground">Anwendbare Rechtsvorschrift</dt>
-              <dd className="mt-0.5 font-medium">
-                Gewerbeordnung (GewO) –{" "}
-                <a
-                  href="https://www.ris.bka.gv.at"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-brand hover:underline"
-                >
-                  ris.bka.gv.at
-                </a>
-              </dd>
-            </div>
+              <div>
+                <dt className="text-muted-foreground">Anwendbare Rechtsvorschrift</dt>
+                <dd className="mt-0.5 font-medium">
+                  Gewerbeordnung (GewO) –{" "}
+                  <a
+                    href="https://www.ris.bka.gv.at"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-brand-strong hover:underline"
+                  >
+                    ris.bka.gv.at
+                  </a>
+                </dd>
+              </div>
 
-            <div>
-              <dt className="text-muted-foreground">Aufsichtsbehörde</dt>
-              <dd className="mt-0.5 font-medium">
-                Bezirkshauptmannschaft bzw. Magistrat am Unternehmenssitz
-              </dd>
-            </div>
-          </dl>
-        </section>
+              {company.supervisoryAuthority && (
+                <div>
+                  <dt className="text-muted-foreground">Aufsichtsbehörde</dt>
+                  <dd className="mt-0.5 font-medium">
+                    {company.supervisoryAuthority}
+                  </dd>
+                </div>
+              )}
+            </dl>
+          </section>
+        )}
 
         <section
           aria-labelledby="streitbeilegung"
@@ -163,12 +173,12 @@ export default async function ImprintPage() {
               href="https://ec.europa.eu/consumers/odr"
               target="_blank"
               rel="noopener noreferrer"
-              className="text-brand hover:underline"
+              className="text-brand-strong hover:underline"
             >
               ec.europa.eu/consumers/odr
             </a>
-            . Sie können sich mit Beschwerden auch an die oben angeführte
-            E-Mail-Adresse wenden.
+            . Sie können sich mit Beschwerden auch direkt an uns wenden – die
+            Kontaktdaten stehen oben.
           </p>
         </section>
 
@@ -216,7 +226,7 @@ export default async function ImprintPage() {
 
         <p className="text-muted-foreground mt-12 text-sm">
           Informationen zur Verarbeitung Ihrer Daten finden Sie in unserer{" "}
-          <Link href="/datenschutz" className="text-brand hover:underline">
+          <Link href="/datenschutz" className="text-brand-strong hover:underline">
             Datenschutzerklärung
           </Link>
           .

@@ -37,6 +37,9 @@ const FALLBACK: CompanyDto = {
   vatId: null,
   commercialRegisterNumber: null,
   commercialRegisterCourt: null,
+  businessPurpose: null,
+  supervisoryAuthority: null,
+  gisaNumber: null,
   contactPersonName: null,
   contactPersonRole: null,
   contactPersonEmail: null,
@@ -97,6 +100,10 @@ export const getCompany = cache(async (): Promise<CompanyDto> => {
     vatId: record.vatId,
     commercialRegisterNumber: record.commercialRegisterNumber,
     commercialRegisterCourt: record.commercialRegisterCourt,
+
+    businessPurpose: record.businessPurpose,
+    supervisoryAuthority: record.supervisoryAuthority,
+    gisaNumber: record.gisaNumber,
 
     contactPersonName: record.contactPersonName,
     contactPersonRole: record.contactPersonRole,

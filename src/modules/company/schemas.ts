@@ -126,6 +126,10 @@ export const companySettingsSchema = z.object({
   commercialRegisterNumber: optionalText(40),
   commercialRegisterCourt: optionalText(120),
 
+  businessPurpose: optionalText(300),
+  supervisoryAuthority: optionalText(160),
+  gisaNumber: optionalText(30),
+
   contactPersonName: optionalText(120),
   contactPersonRole: optionalText(120),
   contactPersonEmail: z

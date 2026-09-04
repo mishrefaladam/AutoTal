@@ -170,7 +170,7 @@ export default async function ContactPage() {
           {/* Öffnungszeiten */}
           <div className="border-border bg-card rounded-xl border p-6">
             <h2 className="font-display flex items-center gap-2.5 text-lg font-bold">
-              <Clock className="text-brand size-4.5" aria-hidden="true" />
+              <Clock className="text-brand-strong size-4.5" aria-hidden="true" />
               Öffnungszeiten
             </h2>
 

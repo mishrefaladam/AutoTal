@@ -31,20 +31,6 @@ const serverSchema = z.object({
     .min(16, "AUTH_SECRET fehlt oder ist zu kurz (>= 16 Zeichen)"),
   ENCRYPTION_KEY: optionalString,
 
-  VEHICLE_PROVIDER: z
-    .enum(["mock", "autopro24", "willhaben"])
-    .default("mock"),
-
-  AUTOPRO24_API_BASE_URL: optionalString,
-  AUTOPRO24_API_KEY: optionalString,
-  AUTOPRO24_DEALER_ID: optionalString,
-
-  WILLHABEN_API_BASE_URL: optionalString,
-  WILLHABEN_API_KEY: optionalString,
-  WILLHABEN_DEALER_ID: optionalString,
-
-  SYNC_CRON_SECRET: optionalString,
-
   RESEND_API_KEY: optionalString,
   RESEND_FROM_EMAIL: optionalString,
   CONTACT_INBOX_EMAIL: optionalString,
@@ -55,6 +41,11 @@ const serverSchema = z.object({
   INSTAGRAM_APP_ID: optionalString,
   INSTAGRAM_APP_SECRET: optionalString,
   INSTAGRAM_REDIRECT_URI: optionalString,
+
+  // Vercel Blob – Objektspeicher für hochgeladene Fahrzeugbilder.
+  // Auf Vercel wird die Variable beim Anlegen eines Blob-Stores automatisch
+  // gesetzt. Lokal ohne Token greift die Ablage im Dateisystem.
+  BLOB_READ_WRITE_TOKEN: optionalString,
 });
 
 export type ServerEnv = z.infer<typeof serverSchema>;
@@ -108,6 +99,17 @@ export function isOpenAIConfigured(): boolean {
 export function isInstagramConfigured(): boolean {
   const e = env();
   return Boolean(e.INSTAGRAM_APP_ID && e.INSTAGRAM_APP_SECRET && e.INSTAGRAM_REDIRECT_URI);
+}
+
+/**
+ * Ist ein Objektspeicher für Bilduploads eingerichtet?
+ *
+ * Ohne Token wird lokal ins Dateisystem geschrieben – das funktioniert in der
+ * Entwicklung, aber NICHT auf Vercel: Dort ist das Dateisystem
+ * schreibgeschützt und bei jedem Deployment weg.
+ */
+export function isBlobStorageConfigured(): boolean {
+  return Boolean(env().BLOB_READ_WRITE_TOKEN);
 }
 
 export function isEncryptionConfigured(): boolean {

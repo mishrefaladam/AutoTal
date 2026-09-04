@@ -67,7 +67,7 @@ const STATUS_STYLES: Record<
   DRAFT: { label: "Entwurf", className: "bg-muted text-muted-foreground" },
   APPROVED: {
     label: "Freigegeben",
-    className: "bg-brand-subtle text-brand",
+    className: "bg-brand-subtle text-brand-strong",
   },
   PUBLISHED: {
     label: "Veröffentlicht",
@@ -428,7 +428,7 @@ function DraftCard({
             </p>
 
             {draft.hashtags.length > 0 && (
-              <p className="text-brand mt-2.5 text-sm">
+              <p className="text-brand-strong mt-2.5 text-sm">
                 {draft.hashtags.map((tag) => `#${tag}`).join(" ")}
               </p>
             )}

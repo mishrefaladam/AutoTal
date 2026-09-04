@@ -5,7 +5,6 @@ import { ArrowRight, Handshake, MapPin, Phone, ShieldCheck, Wrench } from "lucid
 import { Section, SectionHeader } from "@/components/site/section";
 import { Button } from "@/components/ui/button";
 import { getCompany } from "@/modules/company/repository";
-import { countActiveVehicles } from "@/modules/vehicles/repository";
 
 export const revalidate = 3600;
 
@@ -36,10 +35,7 @@ const VALUES = [
 ];
 
 export default async function AboutPage() {
-  const [company, vehicleCount] = await Promise.all([
-    getCompany(),
-    countActiveVehicles(),
-  ]);
+  const company = await getCompany();
 
   return (
     <>
@@ -90,13 +86,6 @@ export default async function AboutPage() {
               <h2 className="font-display text-lg font-bold">Auf einen Blick</h2>
 
               <dl className="mt-5 space-y-4 text-sm">
-                <div>
-                  <dt className="text-muted-foreground">Fahrzeuge im Bestand</dt>
-                  <dd className="font-display tabular mt-0.5 text-2xl font-bold">
-                    {vehicleCount}
-                  </dd>
-                </div>
-
                 {company.addressLine && (
                   <div>
                     <dt className="text-muted-foreground">Standort</dt>
@@ -155,7 +144,7 @@ export default async function AboutPage() {
           {VALUES.map((value) => (
             <li key={value.title}>
               <article className="border-border bg-card h-full rounded-xl border p-7">
-                <span className="bg-brand-subtle text-brand flex size-11 items-center justify-center rounded-lg">
+                <span className="bg-brand-subtle text-brand-strong flex size-11 items-center justify-center rounded-lg">
                   <value.icon className="size-5" aria-hidden="true" />
                 </span>
                 <h3 className="font-display mt-5 text-xl font-bold">
@@ -179,8 +168,8 @@ export default async function AboutPage() {
             Schauen Sie sich um
           </h2>
           <p className="text-ink-muted mx-auto mt-4 max-w-xl leading-relaxed text-pretty">
-            {vehicleCount} geprüfte Fahrzeuge warten auf Sie – online ansehen
-            oder direkt bei uns am Platz.
+Unseren aktuellen Bestand finden Sie online – oder Sie kommen
+            einfach direkt bei uns am Platz vorbei.
           </p>
 
           <Button asChild variant="brand" size="2xl" className="mt-8">

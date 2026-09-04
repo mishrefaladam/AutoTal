@@ -1,12 +1,13 @@
-import { formatEuro, formatKilometers } from "./money";
-
 /**
  * WhatsApp-Deeplinks (US-10).
  *
  * Über wa.me wird eine vorformulierte Nachricht geöffnet, die der Nutzer vor
- * dem Senden noch ändern kann. Bei einer Fahrzeuganfrage enthält die Nachricht
- * das Fahrzeug eindeutig – inklusive Direktlink, damit im Verkauf sofort klar
- * ist, worum es geht.
+ * dem Senden noch ändern kann.
+ *
+ * Fahrzeugbezogene Nachrichten gibt es hier nicht mehr: Der Bestand liegt in
+ * der eingebetteten willhaben-Fahrzeugbörse, die Website kennt die einzelnen
+ * Fahrzeuge nicht. Anfragen zu einem konkreten Fahrzeug laufen über willhaben
+ * selbst.
  *
  * Frei von Server-Abhängigkeiten, damit auch Client-Komponenten den Link bauen
  * können.
@@ -33,41 +34,4 @@ export function buildWhatsAppUrl(
 
 export function generalWhatsAppMessage(companyName: string): string {
   return `Guten Tag! Ich habe eine Frage an ${companyName}.`;
-}
-
-export type WhatsAppVehicleContext = {
-  title: string;
-  priceCents: number;
-  mileageKm: number;
-  slug: string;
-};
-
-/** Nachricht zu einem konkreten Fahrzeug – inklusive eindeutigem Link. */
-export function vehicleWhatsAppMessage(
-  vehicle: WhatsAppVehicleContext,
-  siteUrl: string,
-): string {
-  const url = `${siteUrl.replace(/\/$/, "")}/fahrzeuge/${vehicle.slug}`;
-
-  return (
-    `Guten Tag! Ich interessiere mich für dieses Fahrzeug:\n\n` +
-    `${vehicle.title}\n` +
-    `${formatEuro(vehicle.priceCents)} · ${formatKilometers(vehicle.mileageKm)}\n` +
-    `${url}\n\n` +
-    `Ist es noch verfügbar?`
-  );
-}
-
-export function testDriveWhatsAppMessage(
-  vehicle: WhatsAppVehicleContext,
-  siteUrl: string,
-): string {
-  const url = `${siteUrl.replace(/\/$/, "")}/fahrzeuge/${vehicle.slug}`;
-
-  return (
-    `Guten Tag! Ich möchte gerne eine Probefahrt vereinbaren:\n\n` +
-    `${vehicle.title}\n` +
-    `${url}\n\n` +
-    `Wann wäre das bei Ihnen möglich?`
-  );
 }

@@ -61,20 +61,26 @@ enum VehicleCondition {
   ANNUAL_CAR
 }
 
-/// Ein Fahrzeug im Bestand. Wird über einen VehicleProvider synchronisiert –
-/// `externalSource` + `externalId` identifizieren den Datensatz beim Anbieter.
+/// Ein im Admin erfasstes Fahrzeug.
+///
+/// Bildet NICHT den öffentlichen Fahrzeugbestand ab – der kommt aus der
+/// eingebetteten willhaben-Fahrzeugbörse. Diese Datensätze sind die
+/// Datenbasis für die Social-Media-Funktion.
+///
+/// `externalSource` + `externalId` bleiben erhalten, damit später eine echte
+/// Datenquelle danebentreten kann, ohne bestehende Datensätze anzufassen.
 model Vehicle {
   id   String @id @default(cuid())
   /// URL-Segment für /fahrzeuge/[slug]
   slug String @unique
 
   // -- Provider-Herkunft (US-06) -------------------------------------------
-  /// Kennung des VehicleProvider, z. B. "mock", "autopro24", "willhaben"
+  /// Herkunft des Datensatzes, derzeit immer "manual"
   externalSource String
   /// ID des Fahrzeugs beim Anbieter
   externalId     String
   lastSyncedAt   DateTime @default(now())
-  /// false = verkauft/entfernt, wird nicht mehr öffentlich angezeigt (US-07)
+  /// false = im Admin ausgeblendet
   active         Boolean  @default(true)
 
   // -- Stammdaten ------------------------------------------------------------
@@ -140,39 +146,6 @@ model VehicleImage {
 }
 
 // ---------------------------------------------------------------------------
-// Synchronisierung (US-27)
-// ---------------------------------------------------------------------------
-
-enum SyncStatus {
-  RUNNING
-  SUCCESS
-  PARTIAL
-  FAILED
-}
-
-model SyncRun {
-  id     String     @id @default(cuid())
-  source String
-  status SyncStatus @default(RUNNING)
-
-  startedAt  DateTime  @default(now())
-  finishedAt DateTime?
-
-  vehiclesFound       Int @default(0)
-  vehiclesCreated     Int @default(0)
-  vehiclesUpdated     Int @default(0)
-  vehiclesDeactivated Int @default(0)
-
-  /// Für den Admin verständliche Fehlermeldung – keine Secrets, keine Stacktraces
-  errorMessage String?
-  /// "manual" | "cron" | "startup"
-  triggeredBy  String  @default("manual")
-
-  @@index([source, startedAt])
-  @@index([startedAt])
-}
-
-// ---------------------------------------------------------------------------
 // Unternehmensdaten (US-15, US-16)
 // ---------------------------------------------------------------------------
 
@@ -199,6 +172,16 @@ model CompanySettings {
   vatId                   String?
   commercialRegisterNumber String?
   commercialRegisterCourt  String?
+
+  // -- Gewerberechtliche Angaben fürs Impressum (§ 5 ECG, § 63 GewO) --------
+  // Stehen im GISA-Auszug und ändern sich selten, gehören aber trotzdem in
+  // die Datenbank: Ein Tippfehler im Impressum darf kein Deployment brauchen.
+  /// Gewerbewortlaut laut Gewerberegister
+  businessPurpose      String?
+  /// Zuständige Bezirkshauptmannschaft bzw. Magistrat
+  supervisoryAuthority String?
+  /// GISA-Zahl aus dem Gewerbeinformationssystem Austria
+  gisaNumber           String?
 
   contactPersonName  String?
   contactPersonRole  String?

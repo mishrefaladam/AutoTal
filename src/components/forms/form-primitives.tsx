@@ -126,8 +126,19 @@ export function useActionForm<
 ) {
   const [state, setState] = useState<SubmissionState>({ status: "idle" });
 
-  const onSubmit = form.handleSubmit(async (values, event) => {
+  const onSubmit = form.handleSubmit(async (_transformed, event) => {
     setState({ status: "idle" });
+
+    // WICHTIG: An die Server Action gehen die ROHWERTE des Formulars, nicht
+    // die von Zod bereits transformierten.
+    //
+    // Die Action validiert mit demselben Schema noch einmal von vorn – sie
+    // darf der Prüfung im Browser nicht vertrauen. Bekäme sie die
+    // transformierte Fassung, liefe sie ins Leere: Ein Feld wie
+    // `priceEuro: z.string().transform(Number)` erwartet beim zweiten
+    // Durchlauf wieder einen String, bekäme aber eine Zahl – und die
+    // Validierung schlüge stillschweigend fehl.
+    const values = form.getValues();
 
     // Der Honigtopf wird direkt aus dem DOM gelesen, nicht aus dem
     // Formularzustand: Ein Bot, der den Wert per JavaScript setzt, ohne ein

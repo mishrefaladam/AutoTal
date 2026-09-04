@@ -3,24 +3,25 @@ import type { Metadata } from "next";
 import { AdminPageHeader } from "@/components/admin/admin-page-header";
 import { IntegrationsPanel } from "@/components/admin/integrations-panel";
 import { getInstagramConnection } from "@/integrations/instagram";
-import { listVehicleProviders } from "@/integrations/vehicles";
+import {
+  PROVIDER_LABELS,
+  VEHICLE_WIDGET_PROVIDER,
+} from "@/components/integrations/vehicle-widget";
 import { isInstagramConfigured } from "@/lib/env";
-import { listSyncRuns } from "@/modules/vehicles/sync";
 
 export const metadata: Metadata = { title: "Integrationen" };
 
 /**
- * Integrationen: Fahrzeugquelle, Sync-Protokoll (US-27) und Instagram (US-22).
+ * Integrationen: Fahrzeugbörse und Instagram (US-22).
  *
- * Meldungen aus dem OAuth-Rücksprung kommen als Query-Parameter zurück und
- * werden hier in den Anfangszustand des Panels übernommen.
+ * Das frühere Synchronisierungsprotokoll ist entfallen – es wird nichts mehr
+ * synchronisiert. Der Fahrzeugbestand kommt direkt aus dem eingebetteten
+ * willhaben-Widget.
  */
 export default async function AdminIntegrationsPage({
   searchParams,
 }: PageProps<"/admin/integrationen">) {
-  const [providers, syncRuns, instagram, params] = await Promise.all([
-    listVehicleProviders(),
-    listSyncRuns(15),
+  const [instagram, params] = await Promise.all([
     getInstagramConnection(),
     searchParams,
   ]);
@@ -33,12 +34,12 @@ export default async function AdminIntegrationsPage({
     <>
       <AdminPageHeader
         title="Integrationen"
-        description="Fahrzeugquelle, Synchronisierungsprotokoll und die Verbindung zu Instagram."
+        description="Fahrzeugbörse und die Verbindung zu Instagram."
       />
 
       <IntegrationsPanel
-        providers={providers}
-        syncRuns={syncRuns}
+        widgetProvider={VEHICLE_WIDGET_PROVIDER}
+        widgetLabel={PROVIDER_LABELS[VEHICLE_WIDGET_PROVIDER]}
         instagram={instagram}
         instagramConfigured={isInstagramConfigured()}
         initialFeedback={

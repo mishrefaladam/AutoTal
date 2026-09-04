@@ -143,52 +143,6 @@ export const contactSchema = z.object({
 export type ContactFormValues = z.input<typeof contactSchema>;
 export type ContactInput = z.output<typeof contactSchema>;
 
-// --- Fahrzeuganfrage (US-08) ----------------------------------------------
-
-/**
- * Das Fahrzeug wird über seinen Slug identifiziert. Titel und Preis kommen
- * am Server aus der Datenbank – nicht aus dem Formular. Sonst könnte jemand
- * eine Anfrage mit manipuliertem Preis absenden.
- */
-export const vehicleInquirySchema = z.object({
-  vehicleSlug: z.string().trim().min(1, "Es wurde kein Fahrzeug übermittelt."),
-  name,
-  email,
-  phone: phoneOptional,
-  message,
-  privacyConsent,
-  website: honeypot,
-});
-
-export type VehicleInquiryFormValues = z.input<typeof vehicleInquirySchema>;
-export type VehicleInquiryInput = z.output<typeof vehicleInquirySchema>;
-
-// --- Probefahrt (US-09) ----------------------------------------------------
-
-export const testDriveSchema = z.object({
-  vehicleSlug: z.string().trim().min(1, "Es wurde kein Fahrzeug übermittelt."),
-  name,
-  email,
-  // Für eine Terminvereinbarung ist die Telefonnummer praktisch Pflicht.
-  phone: phoneRequired,
-  preferredDate: z
-    .string()
-    .trim()
-    .max(40, "Bitte geben Sie einen kürzeren Wunschtermin an.")
-    .transform((value) => (value === "" ? undefined : value))
-    .optional(),
-  preferredTime: z.enum(["vormittag", "nachmittag", "egal"]),
-  message: optionalText,
-  hasDrivingLicence: requiredConsent(
-    "Für eine Probefahrt benötigen wir einen gültigen Führerschein.",
-  ),
-  privacyConsent,
-  website: honeypot,
-});
-
-export type TestDriveFormValues = z.input<typeof testDriveSchema>;
-export type TestDriveInput = z.output<typeof testDriveSchema>;
-
 // --- Fahrzeugankauf (US-11) ------------------------------------------------
 
 const currentYear = new Date().getFullYear();

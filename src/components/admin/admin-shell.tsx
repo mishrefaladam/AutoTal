@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import { useState } from "react";
 import {
   Building2,
+  Car,
   ExternalLink,
   LayoutDashboard,
   Landmark,
@@ -33,6 +34,11 @@ const ADMIN_NAV = [
     href: "/admin/dashboard",
     label: "Übersicht",
     icon: LayoutDashboard,
+  },
+  {
+    href: "/admin/fahrzeuge",
+    label: "Fahrzeuge",
+    icon: Car,
   },
   {
     href: "/admin/unternehmen",
@@ -84,7 +90,7 @@ export function AdminShell({
                 className={cn(
                   "flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors focus-visible:ring-3 focus-visible:ring-ring/50 focus-visible:outline-none",
                   active
-                    ? "bg-brand-subtle text-brand"
+                    ? "bg-brand-subtle text-brand-strong"
                     : "text-muted-foreground hover:bg-muted hover:text-foreground",
                 )}
               >
@@ -132,10 +138,8 @@ export function AdminShell({
       {/* Seitenleiste ab Desktop */}
       <aside className="border-border bg-background fixed inset-y-0 left-0 hidden w-64 flex-col border-r p-4 lg:flex">
         <div className="mb-6 px-2">
-          <Logo name={companyName} href="/admin/dashboard" />
-          <p className="text-muted-foreground mt-1 pl-[2.625rem] text-xs">
-            Verwaltung
-          </p>
+          <Logo name={companyName} href="/admin/dashboard" className="h-11" />
+          <p className="text-muted-foreground mt-2 text-xs">Verwaltung</p>
         </div>
 
         {navigation}
@@ -144,7 +148,7 @@ export function AdminShell({
 
       {/* Kopfzeile auf Mobil */}
       <header className="border-border bg-background sticky top-0 z-40 flex h-16 items-center justify-between gap-3 border-b px-4 lg:hidden">
-        <Logo name={companyName} href="/admin/dashboard" />
+        <Logo name={companyName} href="/admin/dashboard" className="h-11" />
 
         <Button
           variant="outline"

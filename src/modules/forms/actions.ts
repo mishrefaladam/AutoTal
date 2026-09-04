@@ -4,7 +4,6 @@ import { z } from "zod";
 
 import { renderNotificationMail } from "@/integrations/resend/templates";
 import { sendMail } from "@/integrations/resend";
-import { siteUrl } from "@/lib/env";
 import { logger } from "@/lib/logger";
 import { formatEuro, formatKilometers } from "@/lib/money";
 import {
@@ -13,30 +12,19 @@ import {
   checkRateLimitForRequest,
   rateLimitMessage,
 } from "@/lib/rate-limit";
-import {
-  type ActionResult,
-  UserFacingError,
-  fail,
-  ok,
-  toActionResult,
-} from "@/lib/result";
-import { prisma } from "@/lib/prisma";
-import {
-  FUEL_LABELS,
-  TRANSMISSION_LABELS,
-  formatRegistration,
-} from "@/modules/vehicles/labels";
+import { type ActionResult, fail, ok, toActionResult } from "@/lib/result";
+import { FUEL_LABELS, TRANSMISSION_LABELS } from "@/modules/vehicles/labels";
 
-import {
-  contactSchema,
-  sellCarSchema,
-  testDriveSchema,
-  toFieldErrors,
-  vehicleInquirySchema,
-} from "./schemas";
+import { contactSchema, sellCarSchema, toFieldErrors } from "./schemas";
 
 /**
  * Server Actions der öffentlichen Formulare.
+ *
+ * Fahrzeuganfrage und Probefahrt sind entfallen: Der Fahrzeugbestand wird
+ * über die eingebettete willhaben-Fahrzeugbörse angezeigt, es gibt auf dieser
+ * Website keine eigenen Fahrzeug-Detailseiten mehr, von denen aus solche
+ * Anfragen gestellt werden könnten. Interessenten nehmen entweder direkt über
+ * willhaben Kontakt auf oder über das allgemeine Kontaktformular.
  *
  * Ablauf für alle: Rate Limit -> Validierung -> Anreicherung aus der
  * Datenbank -> Versand über Resend.
@@ -88,39 +76,6 @@ async function handleSubmission<Schema extends z.ZodType>(
   }
 }
 
-/** Lädt das Fahrzeug serverseitig – Titel und Preis kommen nie aus dem Formular. */
-async function loadVehicleForForm(slug: string) {
-  const vehicle = await prisma.vehicle.findFirst({
-    where: { slug, active: true },
-    select: {
-      slug: true,
-      make: true,
-      model: true,
-      variant: true,
-      priceCents: true,
-      mileageKm: true,
-      firstRegistration: true,
-      externalId: true,
-    },
-  });
-
-  if (!vehicle) {
-    throw new UserFacingError(
-      "Dieses Fahrzeug ist nicht mehr verfügbar. Bitte sehen Sie sich unseren " +
-        "aktuellen Bestand an – oder rufen Sie uns an, wir suchen gerne mit.",
-      "NOT_FOUND",
-    );
-  }
-
-  return {
-    ...vehicle,
-    title: [vehicle.make, vehicle.model, vehicle.variant]
-      .filter(Boolean)
-      .join(" "),
-    url: `${siteUrl()}/fahrzeuge/${vehicle.slug}`,
-  };
-}
-
 // ---------------------------------------------------------------------------
 // Kontaktformular
 // ---------------------------------------------------------------------------
@@ -149,107 +104,6 @@ export async function submitContactForm(
         text: mail.text,
         replyTo: data.email,
         formName: "kontakt",
-      });
-    },
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Fahrzeuganfrage (US-08)
-// ---------------------------------------------------------------------------
-
-export async function submitVehicleInquiry(
-  raw: unknown,
-): Promise<ActionResult<{ message: string }>> {
-  return handleSubmission(
-    {
-      schema: vehicleInquirySchema,
-      rule: RATE_LIMITS.vehicleInquiry,
-      formName: "fahrzeuganfrage",
-    },
-    raw,
-    async (data) => {
-      const vehicle = await loadVehicleForForm(data.vehicleSlug);
-
-      // Das Fahrzeug muss eindeutig identifizierbar sein: Titel, Preis,
-      // Anbieter-Nummer und Direktlink stehen alle in der Mail.
-      const mail = renderNotificationMail({
-        heading: `Anfrage zu: ${vehicle.title}`,
-        intro: `${data.name} interessiert sich für ein Fahrzeug aus dem Bestand.`,
-        fields: [
-          { label: "Fahrzeug", value: vehicle.title },
-          { label: "Preis", value: formatEuro(vehicle.priceCents) },
-          { label: "Kilometerstand", value: formatKilometers(vehicle.mileageKm) },
-          {
-            label: "Erstzulassung",
-            value: formatRegistration(vehicle.firstRegistration),
-          },
-          { label: "Fahrzeug-Nr.", value: vehicle.externalId },
-          { label: "Name", value: data.name },
-          { label: "E-Mail", value: data.email },
-          { label: "Telefon", value: data.phone },
-          { label: "Nachricht", value: data.message, block: true },
-        ],
-        footerNote: `Fahrzeug ansehen: ${vehicle.url}`,
-      });
-
-      await sendMail({
-        subject: `Fahrzeuganfrage: ${vehicle.title} (${vehicle.externalId})`,
-        html: mail.html,
-        text: mail.text,
-        replyTo: data.email,
-        formName: "fahrzeuganfrage",
-      });
-    },
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Probefahrt (US-09)
-// ---------------------------------------------------------------------------
-
-const TIME_LABELS = {
-  vormittag: "Vormittag",
-  nachmittag: "Nachmittag",
-  egal: "Zeit egal",
-} as const;
-
-export async function submitTestDriveRequest(
-  raw: unknown,
-): Promise<ActionResult<{ message: string }>> {
-  return handleSubmission(
-    {
-      schema: testDriveSchema,
-      rule: RATE_LIMITS.testDrive,
-      formName: "probefahrt",
-    },
-    raw,
-    async (data) => {
-      const vehicle = await loadVehicleForForm(data.vehicleSlug);
-
-      const mail = renderNotificationMail({
-        heading: `Probefahrt: ${vehicle.title}`,
-        intro: `${data.name} möchte eine Probefahrt vereinbaren.`,
-        fields: [
-          { label: "Fahrzeug", value: vehicle.title },
-          { label: "Fahrzeug-Nr.", value: vehicle.externalId },
-          { label: "Name", value: data.name },
-          { label: "E-Mail", value: data.email },
-          { label: "Telefon", value: data.phone },
-          { label: "Wunschtermin", value: data.preferredDate ?? "keine Angabe" },
-          { label: "Tageszeit", value: TIME_LABELS[data.preferredTime] },
-          { label: "Führerschein", value: "bestätigt" },
-          { label: "Anmerkung", value: data.message, block: true },
-        ],
-        footerNote: `Fahrzeug ansehen: ${vehicle.url}`,
-      });
-
-      await sendMail({
-        subject: `Probefahrt-Anfrage: ${vehicle.title} (${vehicle.externalId})`,
-        html: mail.html,
-        text: mail.text,
-        replyTo: data.email,
-        formName: "probefahrt",
       });
     },
   );

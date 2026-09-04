@@ -5,7 +5,8 @@ import bcrypt from "bcryptjs";
 import { COMPANY_ID } from "@/modules/company/repository";
 import { FINANCE_CONFIG_ID } from "@/modules/financing/repository";
 import { FINANCE_DISCLAIMER } from "@/modules/financing/calculator";
-import { syncVehicles } from "@/modules/vehicles/sync";
+import { MANUAL_SOURCE } from "@/modules/vehicles/constants";
+import { buildVehicleSlug } from "@/modules/vehicles/slug";
 import { prisma } from "@/lib/prisma";
 
 /**
@@ -19,60 +20,89 @@ import { prisma } from "@/lib/prisma";
  */
 
 // ---------------------------------------------------------------------------
-// TODO(echtdaten): Alle mit [PLATZHALTER] markierten Werte durch die echten
-// Firmendaten ersetzen – entweder hier oder komfortabler unter
-// /admin/unternehmen. Bis dahin darf die Website nicht öffentlich gehen:
-// Impressumsangaben sind in Österreich nach § 5 ECG und § 25 MedienG
-// verpflichtend und müssen korrekt sein.
+// Firmenname, Anschrift, Telefonnummer und Öffnungszeiten sind die echten
+// Daten von AutoTal e.U. Noch offene Angaben sind unten mit
+// TODO(firmendaten) markiert und bewusst leer gelassen statt geraten –
+// Impressumsangaben sind nach § 5 ECG und § 25 MedienG verpflichtend und
+// müssen stimmen. Nachtragen am besten unter /admin/unternehmen.
 // ---------------------------------------------------------------------------
 
-const COMPANY_PLACEHOLDER = {
-  legalName: "AutoTal Handels GmbH", // [PLATZHALTER]
+const COMPANY_DATA = {
+  // Schreibweise exakt wie im Firmenbuch/GISA – dort "Autotal e.U."
+  // mit kleinem t. Die Marke schreibt sich "AutoTal", der
+  // Firmenwortlaut im Impressum muss aber dem Register folgen.
+  legalName: "Autotal e.U.",
   displayName: "AutoTal",
-  tagline: "Geprüfte Gebrauchtwagen aus Oberösterreich",
+  tagline: "Geprüfte Gebrauchtwagen in Strasshof an der Nordbahn",
   aboutText:
-    "AutoTal ist ein familiengeführtes Autohaus. Wir kaufen, prüfen und " +
-    "verkaufen Gebrauchtwagen – jedes Fahrzeug wird vor der Übergabe " +
-    "technisch durchgesehen und kommt mit gültiger §57a-Begutachtung. " +
-    "Was wir über ein Auto wissen, sagen wir Ihnen. Auch das, was nicht " +
-    "im Prospekt steht.",
+    "AutoTal ist ein inhabergeführtes Autohaus in Strasshof an der Nordbahn. " +
+    "Wir kaufen, prüfen und verkaufen Gebrauchtwagen – jedes Fahrzeug wird " +
+    "vor der Übergabe technisch durchgesehen und kommt mit gültiger " +
+    "§57a-Begutachtung. Was wir über ein Auto wissen, sagen wir Ihnen. " +
+    "Auch das, was nicht im Prospekt steht.",
 
-  street: "Bahnhofstraße 12", // [PLATZHALTER]
-  postalCode: "4600", // [PLATZHALTER]
-  city: "Wels", // [PLATZHALTER]
+  street: "Hauptstraße 147",
+  postalCode: "2231",
+  city: "Strasshof an der Nordbahn",
   country: "Österreich",
 
-  phone: "+43 7242 123456", // [PLATZHALTER]
-  whatsappNumber: "436641234567", // [PLATZHALTER] nur Ziffern inkl. Ländervorwahl
-  email: "office@autotal.at", // [PLATZHALTER]
+  // International notiert (+43) statt 0043 – gleiche Nummer, aber die für
+  // tel:-Links und ausländische Anrufer korrekte Schreibweise.
+  phone: "+43 664 3833120",
 
-  vatId: "ATU12345678", // [PLATZHALTER]
-  commercialRegisterNumber: "FN 123456a", // [PLATZHALTER]
-  commercialRegisterCourt: "Landesgericht Wels", // [PLATZHALTER]
+  // Bestätigt: dieselbe Nummer wie oben. Format für wa.me: nur Ziffern
+  // inklusive Ländervorwahl, ohne + und ohne Leerzeichen.
+  whatsappNumber: "436643833120",
 
-  contactPersonName: "Max Mustermann", // [PLATZHALTER]
-  contactPersonRole: "Verkaufsleitung",
-  contactPersonEmail: "verkauf@autotal.at", // [PLATZHALTER]
-  contactPersonPhone: "+43 7242 123456", // [PLATZHALTER]
+  email: "autotal.office@gmail.com",
 
-  latitude: 48.1575, // [PLATZHALTER] Koordinaten des Standorts
-  longitude: 14.0289, // [PLATZHALTER]
+  // Aus dem GISA-Auszug vom 21.08.2026.
+  commercialRegisterNumber: "FN 648226z",
+  businessPurpose: "Handelsgewerbe mit Ausnahme der reglementierten Handelsgewerbe",
+  supervisoryAuthority: "Bezirkshauptmannschaft Gänserndorf",
+  gisaNumber: "38118555",
+
+  // TODO(firmendaten): Beide stehen NICHT im Gewerbeschein.
+  //   vatId                   – kommt vom Finanzamt. Ein e.U. unterhalb der
+  //                             Kleinunternehmergrenze hat unter Umständen
+  //                             gar keine UID.
+  //   commercialRegisterCourt – steht im Firmenbuchauszug. Für den Bezirk
+  //                             Gänserndorf ist es voraussichtlich das
+  //                             Landesgericht Korneuburg; das ist aber zu
+  //                             bestätigen und wird deshalb nicht geraten.
+  vatId: null as string | null,
+  commercialRegisterCourt: null as string | null,
+
+  // Bei einem e.U. ist der Inhaber zugleich das Unternehmen.
+  contactPersonName: "Erolcan Avcı",
+  contactPersonRole: "Inhaber",
+  contactPersonEmail: null as string | null,
+  contactPersonPhone: null as string | null,
+
+  latitude: null as number | null,
+  longitude: null as number | null,
 };
 
-/** Mo–Fr mit Mittagspause, Samstag vormittags, Sonntag geschlossen. */
+/**
+ * Öffnungszeiten Verkauf – durchgehend, ohne Mittagspause.
+ * Das Datenmodell erlaubt zwei Zeitfenster pro Tag; hier wird nur das erste
+ * genutzt (position 0).
+ */
 const OPENING_HOURS = [
-  ...[1, 2, 3, 4, 5].flatMap((weekday) => [
-    { weekday, opensAt: "08:00", closesAt: "12:00", closed: false, position: 0 },
-    { weekday, opensAt: "13:00", closesAt: "18:00", closed: false, position: 1 },
-  ]),
-  { weekday: 6, opensAt: "09:00", closesAt: "13:00", closed: false, position: 0 },
+  { weekday: 1, opensAt: "08:30", closesAt: "18:00", closed: false, position: 0 },
+  { weekday: 2, opensAt: "08:30", closesAt: "18:00", closed: false, position: 0 },
+  { weekday: 3, opensAt: "08:30", closesAt: "18:00", closed: false, position: 0 },
+  { weekday: 4, opensAt: "08:30", closesAt: "18:00", closed: false, position: 0 },
+  { weekday: 5, opensAt: "08:00", closesAt: "16:00", closed: false, position: 0 },
+  { weekday: 6, opensAt: "09:00", closesAt: "12:00", closed: false, position: 0 },
+  // Sonntag war in den Angaben nicht genannt – daher geschlossen.
   { weekday: 7, opensAt: null, closesAt: null, closed: true, position: 0 },
 ];
 
-const SOCIAL_LINKS = [
-  { platform: "instagram", url: "https://www.instagram.com/", position: 0 }, // [PLATZHALTER]
-  { platform: "facebook", url: "https://www.facebook.com/", position: 1 }, // [PLATZHALTER]
-];
+// TODO(firmendaten): Social-Media-Profile eintragen, sobald bekannt.
+// Bewusst leer statt auf instagram.com/facebook.com allgemein zu verlinken –
+// ein Link, der nicht zum Autohaus führt, ist schlechter als keiner.
+const SOCIAL_LINKS: { platform: string; url: string; position: number }[] = [];
 
 // TODO(echtdaten): Durch die tatsächlichen Finanzierungspartner ersetzen.
 // Bewusst KEINE echten Banknamen vorbelegt – sonst behauptet die Website eine
@@ -118,13 +148,16 @@ async function seedCompany() {
   await prisma.companySettings.create({
     data: {
       id: COMPANY_ID,
-      ...COMPANY_PLACEHOLDER,
+      ...COMPANY_DATA,
       openingHours: { create: OPENING_HOURS },
       socialLinks: { create: SOCIAL_LINKS },
     },
   });
 
-  console.log("✓ Unternehmensdaten angelegt (Platzhalter – bitte im Admin ersetzen).");
+  console.log(
+    "✓ Unternehmensdaten angelegt. Offen: E-Mail-Adresse, UID und " +
+      "Firmenbuchnummer – bitte unter /admin/unternehmen ergänzen.",
+  );
 }
 
 async function seedFinance() {
@@ -190,19 +223,102 @@ async function seedAdminUser() {
   console.log(`✓ Admin-Benutzer ${email} angelegt – Passwort nach dem ersten Login ändern.`);
 }
 
-async function seedVehicles() {
-  const result = await syncVehicles({ triggeredBy: "seed" });
+/**
+ * Beispielfahrzeuge für die Entwicklung.
+ *
+ * Seit der Umstellung auf die eingebettete willhaben-Fahrzeugbörse speisen
+ * Fahrzeuge in der Datenbank NICHT mehr den öffentlichen Bestand – der kommt
+ * vollständig aus dem Widget. Sie dienen ausschließlich als Datenbasis für die
+ * Social-Media-Funktion (Fahrzeug auswählen, Caption generieren).
+ *
+ * Deshalb werden sie nur außerhalb der Produktion angelegt. Im Livebetrieb
+ * pflegt das Autohaus die Fahrzeuge, über die es posten möchte, selbst unter
+ * /admin/fahrzeuge.
+ */
+const DEV_VEHICLES = [
+  {
+    make: "Volkswagen",
+    model: "Golf",
+    variant: "2.0 TDI Life DSG",
+    priceCents: 2_290_000,
+    mileageKm: 78_500,
+    firstRegistration: new Date("2021-03-15"),
+    fuel: "DIESEL",
+    transmission: "AUTOMATIC",
+    bodyType: "SEDAN",
+    powerKw: 110,
+    color: "Urangrau Metallic",
+    description:
+      "Gepflegter Golf aus erster Hand mit lückenlos geführtem Serviceheft.",
+    features: ["Navigationssystem", "Rückfahrkamera", "Sitzheizung vorne"],
+  },
+  {
+    make: "BMW",
+    model: "320d",
+    variant: "xDrive Touring M Sport",
+    priceCents: 3_490_000,
+    mileageKm: 96_200,
+    firstRegistration: new Date("2020-06-08"),
+    fuel: "DIESEL",
+    transmission: "AUTOMATIC",
+    bodyType: "ESTATE",
+    powerKw: 140,
+    color: "Saphirschwarz Metallic",
+    description:
+      "Vollausgestatteter 3er Touring mit xDrive-Allradantrieb und M Sportpaket.",
+    features: ["xDrive Allradantrieb", "Head-up Display", "Panorama-Glasdach"],
+  },
+  {
+    make: "Skoda",
+    model: "Octavia Combi",
+    variant: "1.5 TSI Ambition",
+    priceCents: 2_480_000,
+    mileageKm: 42_100,
+    firstRegistration: new Date("2022-04-11"),
+    fuel: "PETROL",
+    transmission: "MANUAL",
+    bodyType: "ESTATE",
+    powerKw: 110,
+    color: "Energieblau Metallic",
+    description:
+      "Der Octavia Combi bleibt der Maßstab beim Kofferraum – erst 42.000 km gelaufen.",
+    features: ["Voll-LED-Scheinwerfer", "Klimaautomatik", "Dachreling"],
+  },
+] as const;
 
-  if (result.status === "FAILED") {
-    console.warn(`⚠ Fahrzeug-Sync fehlgeschlagen: ${result.errorMessage}`);
+async function seedDevelopmentVehicles() {
+  if (process.env.NODE_ENV === "production") {
+    console.log(
+      "→ Produktion: keine Beispielfahrzeuge. Fahrzeuge für Social Media " +
+        "werden unter /admin/fahrzeuge gepflegt.",
+    );
     return;
   }
 
+  const existing = await prisma.vehicle.count();
+
+  if (existing > 0) {
+    console.log(`→ Es sind bereits ${existing} Fahrzeuge erfasst.`);
+    return;
+  }
+
+  for (const [index, vehicle] of DEV_VEHICLES.entries()) {
+    const externalId = `dev-${String(index + 1).padStart(3, "0")}`;
+
+    await prisma.vehicle.create({
+      data: {
+        ...vehicle,
+        features: [...vehicle.features],
+        externalSource: MANUAL_SOURCE,
+        externalId,
+        slug: buildVehicleSlug({ ...vehicle, externalId }),
+      },
+    });
+  }
+
   console.log(
-    `✓ Fahrzeuge synchronisiert (${result.source}): ` +
-      `${result.vehiclesFound} gefunden, ${result.vehiclesCreated} neu, ` +
-      `${result.vehiclesUpdated} aktualisiert, ` +
-      `${result.vehiclesDeactivated} deaktiviert.`,
+    `✓ ${DEV_VEHICLES.length} Beispielfahrzeuge angelegt (nur Entwicklung, ` +
+      "Datenbasis für Social Media – ohne Bilder).",
   );
 }
 
@@ -212,7 +328,7 @@ async function main() {
   await seedCompany();
   await seedFinance();
   await seedAdminUser();
-  await seedVehicles();
+  await seedDevelopmentVehicles();
 
   console.log("\nSeed abgeschlossen.");
 }

@@ -15,9 +15,7 @@ import {
 } from "lucide-react";
 
 import { Section, SectionHeader } from "@/components/site/section";
-import { VehicleCard } from "@/components/vehicles/vehicle-card";
 import { Button } from "@/components/ui/button";
-import { formatEuro } from "@/lib/money";
 import { cn } from "@/lib/utils";
 import { buildWhatsAppUrl, generalWhatsAppMessage } from "@/lib/whatsapp";
 import {
@@ -25,12 +23,6 @@ import {
   groupOpeningHours,
 } from "@/modules/company/opening-hours";
 import { getCompany } from "@/modules/company/repository";
-import { estimateMonthlyPaymentCents } from "@/modules/financing/calculator";
-import { getFinanceConfig } from "@/modules/financing/repository";
-import {
-  countActiveVehicles,
-  listLatestVehicles,
-} from "@/modules/vehicles/repository";
 
 /**
  * Startseite (US-01).
@@ -47,12 +39,7 @@ const HERO_IMAGE =
   "?auto=format&fit=crop&w=2400&q=80";
 
 export default async function HomePage() {
-  const [company, vehicles, vehicleCount, financeConfig] = await Promise.all([
-    getCompany(),
-    listLatestVehicles(6),
-    countActiveVehicles(),
-    getFinanceConfig(),
-  ]);
+  const company = await getCompany();
 
   const openingStatus = getOpeningStatus(company.openingHours);
   const openingDays = groupOpeningHours(company.openingHours);
@@ -61,10 +48,6 @@ export default async function HomePage() {
     company.whatsappNumber,
     generalWhatsAppMessage(company.displayName),
   );
-
-  const cheapestPrice = vehicles.length
-    ? Math.min(...vehicles.map((vehicle) => vehicle.priceCents))
-    : null;
 
   return (
     <>
@@ -103,7 +86,7 @@ export default async function HomePage() {
 
             <h1 className="font-display text-4xl leading-[1.05] font-extrabold tracking-tight text-balance sm:text-5xl lg:text-6xl">
               Ihr nächstes Auto.
-              <span className="text-brand block">Ehrlich geprüft.</span>
+              <span className="text-brand-strong block">Ehrlich geprüft.</span>
             </h1>
 
             {/* Tagline und Fließtext bleiben getrennte Absätze: Die Tagline
@@ -135,28 +118,25 @@ export default async function HomePage() {
               </Button>
             </div>
 
-            {/* Eckdaten als Vertrauensanker */}
+            {/* Eckdaten als Vertrauensanker.
+                Bewusst keine Bestandszahl mehr: Der Fahrzeugbestand liegt
+                bei willhaben, die Website kennt ihn nicht. Eine Zahl aus der
+                eigenen Datenbank wäre schlicht falsch. */}
             <dl className="border-ink-border mt-12 grid max-w-lg grid-cols-2 gap-x-8 gap-y-6 border-t pt-8 sm:grid-cols-3">
               <div>
-                <dt className="text-ink-muted text-sm">Fahrzeuge im Bestand</dt>
-                <dd className="font-display tabular mt-1 text-2xl font-bold">
-                  {vehicleCount}
-                </dd>
+                <dt className="text-ink-muted text-sm">Fahrzeuge</dt>
+                <dd className="font-display mt-1 text-2xl font-bold">geprüft</dd>
               </div>
-
-              {cheapestPrice !== null && (
-                <div>
-                  <dt className="text-ink-muted text-sm">Bereits ab</dt>
-                  <dd className="font-display tabular mt-1 text-2xl font-bold">
-                    {formatEuro(cheapestPrice)}
-                  </dd>
-                </div>
-              )}
 
               <div>
                 <dt className="text-ink-muted text-sm">§57a-Begutachtung</dt>
+                <dd className="font-display mt-1 text-2xl font-bold">inklusive</dd>
+              </div>
+
+              <div>
+                <dt className="text-ink-muted text-sm">Probefahrt</dt>
                 <dd className="font-display mt-1 text-2xl font-bold">
-                  inklusive
+                  nach Termin
                 </dd>
               </div>
             </dl>
@@ -193,7 +173,7 @@ export default async function HomePage() {
           ].map((item) => (
             <div key={item.title} className="flex gap-3.5 px-1 py-6">
               <item.icon
-                className="text-brand mt-0.5 size-5 shrink-0"
+                className="text-brand-strong mt-0.5 size-5 shrink-0"
                 aria-hidden="true"
               />
               <div>
@@ -208,46 +188,30 @@ export default async function HomePage() {
       </section>
 
       {/* ---------------------------------------------------------------- */}
-      {/* Aktuelle Fahrzeuge                                                */}
+      {/* Fahrzeugbestand                                                   */}
       {/* ---------------------------------------------------------------- */}
-      <Section aria-labelledby="aktuelle-fahrzeuge">
-        <SectionHeader
-          headingId="aktuelle-fahrzeuge"
-          eyebrow="Fahrzeugbestand"
-          title="Neu bei uns im Haus"
-          description="Ein Ausschnitt aus unserem aktuellen Bestand. Alle Fahrzeuge sind sofort verfügbar und können nach Vereinbarung besichtigt werden."
-          action={
-            <Button asChild variant="outline" size="xl">
-              <Link href="/fahrzeuge">
-                Alle {vehicleCount} Fahrzeuge
-                <ArrowRight data-icon="inline-end" aria-hidden="true" />
-              </Link>
-            </Button>
-          }
-        />
-
-        {vehicles.length > 0 ? (
-          <ul className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
-            {vehicles.map((vehicle, index) => (
-              <li key={vehicle.id} className="flex">
-                <VehicleCard
-                  vehicle={vehicle}
-                  className="w-full"
-                  priority={index < 3}
-                  monthlyRateCents={estimateMonthlyPaymentCents(
-                    vehicle.priceCents,
-                    financeConfig,
-                  )}
-                />
-              </li>
-            ))}
-          </ul>
-        ) : (
-          <p className="text-muted-foreground border-border rounded-xl border border-dashed py-16 text-center">
-            Derzeit sind keine Fahrzeuge im Bestand. Melden Sie sich gerne – wir
-            suchen Ihr Wunschfahrzeug.
+      <Section aria-labelledby="fahrzeugbestand">
+        <div className="border-border bg-card rounded-2xl border p-8 text-center lg:p-14">
+          <p className="eyebrow mb-3">Fahrzeugbestand</p>
+          <h2
+            id="fahrzeugbestand"
+            className="font-display text-3xl font-bold tracking-tight text-balance sm:text-4xl"
+          >
+            Unser aktueller Bestand
+          </h2>
+          <p className="text-muted-foreground mx-auto mt-4 max-w-xl leading-relaxed text-pretty">
+            Alle verfügbaren Fahrzeuge mit Bildern, Ausstattung und Preisen –
+            laufend aktuell. Besichtigung und Probefahrt jederzeit nach
+            Vereinbarung.
           </p>
-        )}
+
+          <Button asChild variant="brand" size="2xl" className="mt-8">
+            <Link href="/fahrzeuge">
+              Fahrzeuge ansehen
+              <ArrowRight data-icon="inline-end" aria-hidden="true" />
+            </Link>
+          </Button>
+        </div>
       </Section>
 
       {/* ---------------------------------------------------------------- */}
@@ -287,7 +251,7 @@ export default async function HomePage() {
           ].map((service) => (
             <li key={service.href}>
               <article className="group border-border bg-card relative flex h-full flex-col rounded-xl border p-7 transition-shadow hover:shadow-[var(--shadow-card)]">
-                <span className="bg-brand-subtle text-brand flex size-11 items-center justify-center rounded-lg">
+                <span className="bg-brand-subtle text-brand-strong flex size-11 items-center justify-center rounded-lg">
                   <service.icon className="size-5" aria-hidden="true" />
                 </span>
 
@@ -304,7 +268,7 @@ export default async function HomePage() {
                   {service.text}
                 </p>
 
-                <p className="text-brand mt-5 inline-flex items-center gap-1.5 text-sm font-medium">
+                <p className="text-brand-strong mt-5 inline-flex items-center gap-1.5 text-sm font-medium">
                   {service.cta}
                   <ArrowRight
                     className="size-4 transition-transform group-hover:translate-x-0.5 motion-reduce:transition-none motion-reduce:group-hover:translate-x-0"
@@ -408,7 +372,7 @@ export default async function HomePage() {
           {/* Öffnungszeiten und Anfahrt */}
           <div className="border-border bg-muted/40 rounded-2xl border p-7 lg:p-8">
             <h3 className="font-display flex items-center gap-2.5 text-xl font-bold">
-              <Clock className="text-brand size-5" aria-hidden="true" />
+              <Clock className="text-brand-strong size-5" aria-hidden="true" />
               Öffnungszeiten
             </h3>
 
@@ -437,7 +401,7 @@ export default async function HomePage() {
             {company.addressLine && (
               <>
                 <h3 className="font-display mt-8 flex items-center gap-2.5 text-xl font-bold">
-                  <MapPin className="text-brand size-5" aria-hidden="true" />
+                  <MapPin className="text-brand-strong size-5" aria-hidden="true" />
                   Anfahrt
                 </h3>
 

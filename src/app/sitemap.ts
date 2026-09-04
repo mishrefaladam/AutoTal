@@ -1,14 +1,14 @@
 import type { MetadataRoute } from "next";
 
 import { siteUrl } from "@/lib/env";
-import { listActiveVehicleSlugs } from "@/modules/vehicles/repository";
 
 /**
  * Sitemap.
  *
- * Enthält die statischen Seiten und jede aktive Fahrzeugseite. Deaktivierte
- * Fahrzeuge (verkauft, entfernt) verschwinden automatisch mit, weil
- * `listActiveVehicleSlugs()` nur aktive liefert (US-07).
+ * Enthält ausschließlich eigene Seiten. Einzelne Fahrzeuge stehen bewusst
+ * NICHT darin: Der Bestand wird über die eingebettete willhaben-Fahrzeugbörse
+ * angezeigt und hat auf dieser Website keine eigenen URLs. Die
+ * Fahrzeug-Detailseiten liegen bei willhaben und werden dort indexiert.
  */
 
 export const revalidate = 3600;
@@ -63,21 +63,5 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     },
   ];
 
-  try {
-    const vehicles = await listActiveVehicleSlugs();
-
-    return [
-      ...staticRoutes,
-      ...vehicles.map((vehicle) => ({
-        url: `${base}/fahrzeuge/${vehicle.slug}`,
-        lastModified: vehicle.updatedAt,
-        changeFrequency: "weekly" as const,
-        priority: 0.8,
-      })),
-    ];
-  } catch {
-    // Ist die Datenbank kurzzeitig nicht erreichbar, wird lieber eine
-    // unvollständige Sitemap ausgeliefert als gar keine.
-    return staticRoutes;
-  }
+  return staticRoutes;
 }

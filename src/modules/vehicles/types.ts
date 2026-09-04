@@ -6,7 +6,11 @@ import type {
 } from "@/generated/prisma/enums";
 
 /**
- * Domänentypen für Fahrzeuge.
+ * Domänentypen für erfasste Fahrzeuge.
+ *
+ * Diese Typen beschreiben die Fahrzeuge, die im Admin gepflegt werden und der
+ * Social-Media-Funktion als Datenbasis dienen – nicht den öffentlichen
+ * Bestand, der aus der willhaben-Fahrzeugbörse kommt.
  *
  * Die Enum-Werte werden als *Typ* aus dem generierten Prisma-Client bezogen
  * (`import type` – kein Runtime-Import). Damit gibt es genau ein Vokabular für
@@ -64,53 +68,4 @@ export type VehicleDetail = VehicleListItem & {
   externalSource: string;
   externalId: string;
   lastSyncedAt: Date;
-};
-
-// --- Filter (US-04) --------------------------------------------------------
-
-export type VehicleSortOption =
-  | "newest"
-  | "price-asc"
-  | "price-desc"
-  | "mileage-asc"
-  | "registration-desc";
-
-export type VehicleFilters = {
-  make: string | null;
-  model: string | null;
-  minPriceCents: number | null;
-  maxPriceCents: number | null;
-  minMileageKm: number | null;
-  maxMileageKm: number | null;
-  minFirstRegistrationYear: number | null;
-  maxFirstRegistrationYear: number | null;
-  fuel: FuelType[];
-  transmission: TransmissionType[];
-  bodyType: BodyType[];
-  sort: VehicleSortOption;
-  page: number;
-};
-
-/**
- * Wertebereiche des tatsächlichen Bestands – speist die Filter-UI, damit
- * Schieberegler und Auswahllisten nie leere Ergebnisse anbieten.
- */
-export type VehicleFacets = {
-  makes: { value: string; count: number }[];
-  modelsByMake: Record<string, string[]>;
-  fuels: { value: FuelType; count: number }[];
-  transmissions: { value: TransmissionType; count: number }[];
-  bodyTypes: { value: BodyType; count: number }[];
-  priceRange: { minCents: number; maxCents: number };
-  mileageRange: { minKm: number; maxKm: number };
-  yearRange: { min: number; max: number };
-  totalCount: number;
-};
-
-export type VehicleSearchResult = {
-  items: VehicleListItem[];
-  totalCount: number;
-  page: number;
-  pageSize: number;
-  totalPages: number;
 };

@@ -33,10 +33,11 @@ npm run dev
 Danach: <http://localhost:3000> – Adminbereich unter `/admin/login` mit den
 Zugangsdaten aus `SEED_ADMIN_EMAIL` / `SEED_ADMIN_PASSWORD`.
 
-Die Website läuft ohne einen einzigen externen Dienst: Der Fahrzeugbestand
-kommt aus dem `MockVehicleProvider` (14 Testfahrzeuge). Resend, OpenAI und
-Instagram sind optional – fehlt ein Key, blendet die Oberfläche die Funktion
-aus oder meldet es verständlich, statt stillschweigend zu scheitern.
+Die Website läuft auch ohne Resend, OpenAI und Instagram – fehlt ein Key,
+blendet die Oberfläche die Funktion aus oder meldet es verständlich, statt
+stillschweigend zu scheitern. Der öffentliche Fahrzeugbestand kommt aus dem
+willhaben Widget Lite; solange der offizielle Einbettungscode fehlt, zeigt
+`/fahrzeuge` eine neutrale Hinweismeldung.
 
 ---
 
@@ -46,16 +47,15 @@ aus oder meldet es verständlich, statt stillschweigend zu scheitern.
 | --- | --- |
 | `npm run dev` | Entwicklungsserver |
 | `npm run build` | Produktionsbuild (inkl. `prisma generate`) |
-| `npm run typecheck` | TypeScript prüfen |
+| `npm run typecheck` | Next-Routetypen erzeugen und TypeScript prüfen |
 | `npm run lint` | ESLint |
 | `npm test` | Unit-Tests (ohne Datenbank) |
 | `npm run test:db:setup` | Testdatenbank anlegen und migrieren |
-| `npm run test:db` | Alle Tests inkl. Sync-Integrationstests |
+| `npm run test:db` | Alle Tests gegen die Testdatenbank |
 | `npm run check` | Typecheck + Lint + Tests + Build |
 | `npm run db:migrate` | Migration erstellen und anwenden |
-| `npm run db:seed` | Grunddaten und Testfahrzeuge |
+| `npm run db:seed` | Grunddaten und optional ersten Admin anlegen |
 | `npm run db:studio` | Prisma Studio |
-| `npm run vehicles:sync` | Fahrzeugsynchronisierung von der Kommandozeile |
 
 ---
 
@@ -68,23 +68,23 @@ src/
     admin/
       login/           Anmeldung (außerhalb des geschützten Layouts)
       (protected)/     Alles hinter requireAdmin()
-    api/               Auth.js, Instagram-Callback, Cron
+    api/               Auth.js, Instagram-Callback, Admin-Uploads
   components/
+    integrations/
+      vehicle-widget/  Fahrzeugbörse (willhaben Widget Lite)
     ui/                shadcn/ui-Primitiven
     site/              Kopfzeile, Fußzeile, Layoutbausteine
-    vehicles/          Fahrzeugkarte, Galerie, Filter
     forms/             Formulare und Formularbausteine
     admin/             Oberfläche des Adminbereichs
     financing/         Finanzierungsrechner
   modules/             Fachlogik, unabhängig von der UI
-    vehicles/          Typen, Repository, Filter, Sync
+    vehicles/          Erfasste Fahrzeuge (Datenbasis Social Media)
     financing/         Rechner, Konfiguration
     company/           Unternehmensdaten, Öffnungszeiten
     social/            KI-Entwürfe, Freigabe, Veröffentlichung
     forms/             Schemata und Server Actions
     admin/             Autorisierung, An- und Abmeldung
   integrations/        Externe Dienste, jeweils hinter einer Schnittstelle
-    vehicles/          VehicleProvider (Mock, autoPro24, Willhaben)
     resend/            E-Mail
     openai/            Caption-Generierung
     instagram/         Graph API
@@ -92,31 +92,102 @@ src/
 ```
 
 **Die Trennung ist keine Kosmetik.** `modules/` kennt kein React, `components/`
-kein Prisma, und `integrations/` ist über Interfaces austauschbar. Eine neue
-Fahrzeugquelle ist deshalb eine Datei plus ein Registry-Eintrag – nicht ein
-Umbau der halben Anwendung.
+kein Prisma, und `integrations/` kapselt externe Dienste wie Resend, OpenAI,
+Instagram und Speicher.
 
-### Fahrzeugquellen
+### Fahrzeugbörse / willhaben Integration
 
-Die Anwendung ist **nicht** von Willhaben oder autoPro24 abhängig. Sämtliche
-Fahrzeugdaten laufen über das Interface `VehicleProvider`
-([Details](src/integrations/vehicles/README.md)):
+Der öffentliche Fahrzeugbestand wird **nicht** von dieser Website verwaltet.
+Er kommt aus dem **willhaben Widget Lite**, das in `/fahrzeuge` eingebettet
+wird.
 
-```ts
-listVehicles(options?) -> { vehicles, nextCursor, isCompleteInventory }
-getVehicleById(externalId) -> ProviderVehicle | null
-isConfigured() -> boolean
+```
+/fahrzeuge  ->  VehicleWidget  ->  Widget Lite
 ```
 
-| Quelle | Status |
-| --- | --- |
-| `mock` | einsatzbereit, Standard |
-| `autopro24` | Adapter vorbereitet – wartet auf API-Dokumentation und Zugangsdaten |
-| `willhaben` | Adapter vorbereitet – wartet auf offiziellen Schnittstellenzugang |
+Stand laut technischer Rückmeldung von willhaben Motornetzwerk:
 
-Es wird **nicht gescrapt**, und es wurden keine API-Endpunkte erfunden. Beide
-noch nicht angebundenen Provider melden über `isConfigured() === false`, dass
-sie nicht einsatzbereit sind. Der Status steht im Admin unter *Integrationen*.
+- **Widget Lite ist im Vertrag des Kunden enthalten.**
+- Den **Einbettungscode stellt willhaben bereit** – er liegt uns noch nicht vor.
+- Design und Funktionsumfang von Widget Lite sind **nicht anpassbar**.
+- Es gibt für diesen Händler **keinen individuellen API-Zugang**.
+- Die im Vertrag erwähnte Export-Schnittstelle ist **keine API für diese
+  Website** – sie dient dem Export aus willhabenPro zu anderen Plattformen.
+- Änderungen auf willhaben erscheinen laut Anbieter **unmittelbar** im Widget.
+- Deshalb gibt es hier **keine eigene Synchronisierung, keinen
+  Zwischenspeicher, kein Scraping**.
+- Ein späterer Wechsel auf das kostenpflichtige **Carport Widget** ist
+  vorgesehen.
+
+**Der echte Einbettungscode ist noch einzufügen** – in
+[`willhaben-lite.tsx`](src/components/integrations/vehicle-widget/willhaben-lite.tsx),
+markiert mit `TODO: Insert official willhaben Widget Lite embed code here`.
+Danach `EMBED_AVAILABLE` auf `true` setzen.
+
+Solange der Code fehlt:
+
+| Umgebung | Anzeige |
+| --- | --- |
+| Entwicklung | Platzhalter mit Hinweis auf die Einfügestelle |
+| Produktion | Neutrale Meldung für Besucher **plus** Fehlereintrag im Log |
+
+**CSP:** Derzeit ist bewusst keine Content Security Policy gesetzt – welche
+Domains das Widget lädt, ist unbekannt, und eine CSP vorab würde es
+blockieren. Nach Erhalt des Codes anpassen; Details in
+[der Integrations-README](src/components/integrations/vehicle-widget/README.md).
+
+### Migration Widget Lite → Carport
+
+Falls Widget Lite optisch oder funktional nicht ausreicht:
+
+1. **Carport bei willhaben bestellen** (kostenpflichtig).
+2. **Code und Integrationsinformationen** von willhaben erhalten – inklusive
+   der Domains, die das Widget kontaktiert.
+3. **Integration ersetzen:** Code in
+   [`carport.tsx`](src/components/integrations/vehicle-widget/carport.tsx)
+   einsetzen, `EMBED_AVAILABLE` auf `true` setzen und in
+   [`config.ts`](src/components/integrations/vehicle-widget/config.ts)
+   `VEHICLE_WIDGET_PROVIDER` auf `"carport"` umstellen.
+4. **CSP prüfen** und die Domains des neuen Widgets freigeben.
+5. **Responsives Verhalten testen** – vor allem auf dem Smartphone, und dass
+   die Seite nicht horizontal scrollt.
+6. **Smoke Test in der Produktion:** `/fahrzeuge` aufrufen, prüfen dass
+   Fahrzeuge erscheinen und kein Konfigurationsfehler im Log steht.
+
+Seite, Navigation, Layout und übrige Logik bleiben dabei unverändert.
+
+### Fahrzeuge im Admin (Datenbasis für Social Media)
+
+Unter `/admin/fahrzeuge` erfasste Fahrzeuge erscheinen **nicht** auf der
+öffentlichen Website – dort zeigt ausschließlich das Widget den Bestand.
+
+Sie dienen allein der **Social-Media-Funktion**: Fahrzeug auswählen, Caption
+erzeugen lassen, prüfen, freigeben, veröffentlichen. Ohne strukturierten
+Zugriff auf die Widget-Daten braucht die KI eine eigene, verlässliche
+Datenquelle – und aus dem Widget zu lesen wäre Scraping.
+
+> **Offene Integration:** Sobald willhaben eine offizielle strukturierte
+> Datenquelle bereitstellt, kann sie diese manuelle Erfassung ersetzen. Bis
+> dahin bleibt die doppelte Pflege für Social-Media-Beiträge bestehen.
+
+### Bilder
+
+Hochgeladene Fahrzeugbilder laufen über `src/integrations/storage`:
+
+| Umgebung | Speicher | Voraussetzung |
+| --- | --- | --- |
+| Produktion | Vercel Blob | `BLOB_READ_WRITE_TOKEN` |
+| Entwicklung | `public/uploads/` | – |
+
+Auf Vercel ist das Dateisystem zur Laufzeit schreibgeschützt und bei jedem
+Deployment leer. Ohne Blob-Store lassen sich dort also **keine** Bilder
+hochladen; der Admin weist beim Bearbeiten eines Fahrzeugs darauf hin.
+
+Der Upload läuft über einen Route Handler
+(`/api/admin/vehicles/[id]/images`) statt über eine Server Action: Actions
+haben ein knappes Body-Limit, Fahrzeugfotos liegen regelmäßig darüber.
+Erlaubt sind JPEG, PNG und WebP bis 8 MB, höchstens 30 Bilder je Fahrzeug.
+Das erste Bild ist das Titelbild.
 
 ### Konventionen
 
@@ -135,7 +206,7 @@ sie nicht einsatzbereit sind. Der Status steht im Admin unter *Integrationen*.
 
 ## Sicherheit
 
-- **Autorisierung serverseitig.** Die Middleware prüft nur das signierte
+- **Autorisierung serverseitig.** Der Next-Proxy prüft nur das signierte
   Token. Jede Adminseite und jede Admin-Action ruft zusätzlich
   `requireAdmin()` bzw. `requireAdminForAction()` auf und prüft gegen die
   Datenbank – sonst hätte ein gerade gesperrter Zugang bis zum Ablauf des
@@ -192,44 +263,85 @@ für Privatkonten stellt Meta keine Veröffentlichungs-Schnittstelle bereit.
 2. **Umgebungsvariablen** aus `.env.example` übernehmen. Pflicht sind
    `DATABASE_URL`, `AUTH_SECRET`, `ENCRYPTION_KEY` und
    `NEXT_PUBLIC_SITE_URL`.
-3. **Migrationen** beim Deployment ausführen – Build Command:
+3. **Migrationen** für die Produktionsdatenbank ausführen:
    ```
-   prisma migrate deploy && npm run build
+   npm run db:deploy
    ```
 4. **Ersten Admin anlegen**: `SEED_ADMIN_EMAIL` und `SEED_ADMIN_PASSWORD`
-   setzen und `npm run db:seed` einmalig ausführen. Passwort danach ändern.
-5. **Cron** ist in `vercel.json` hinterlegt (alle 4 Stunden). Dafür
-   `SYNC_CRON_SECRET` setzen – ohne diesen Wert ist der Endpunkt bewusst
-   deaktiviert.
-6. **Bildhosts** des Fahrzeug-Providers in `next.config.ts` unter
-   `images.remotePatterns` eintragen.
+   temporär setzen und `npm run db:seed` einmalig ausführen. Passwort danach
+   ändern und die Seed-Variablen wieder entfernen. Beispielfahrzeuge werden in
+   `NODE_ENV=production` nicht angelegt.
+5. **Vercel Blob** anlegen, wenn Fahrzeugbilder im Admin hochgeladen werden
+   sollen. Vercel setzt dann `BLOB_READ_WRITE_TOKEN`.
+6. **willhaben Widget-Lite-Einbettungscode** einsetzen, sobald willhaben den
+   offiziellen Code bereitstellt.
 
 ### Vor dem Livegang
 
-- [ ] Echte Firmendaten unter `/admin/unternehmen` eintragen – alle mit
-      `[PLATZHALTER]` markierten Werte aus `prisma/seed.ts` ersetzen.
-      **Impressumsangaben sind nach § 5 ECG verpflichtend und müssen stimmen.**
-- [ ] Impressum und Datenschutzerklärung juristisch prüfen lassen
-      (Gewerbewortlaut, Aufsichtsbehörde, Kammerzugehörigkeit).
+Eingetragen sind: Firmenwortlaut (`Autotal e.U.` – Schreibweise laut
+Firmenbuch), Anschrift, Telefon, WhatsApp, E-Mail, Öffnungszeiten,
+Firmenbuchnummer `FN 648226z`, Gewerbewortlaut, Aufsichtsbehörde
+(BH Gänserndorf), GISA-Zahl `38118555` und der Inhaber.
+
+Noch offen:
+- [ ] **willhaben Widget-Lite-Einbettungscode** einsetzen — ohne ihn zeigt
+      `/fahrzeuge` keine Fahrzeuge. Siehe „Fahrzeugbörse / willhaben
+      Integration“.
+- [ ] **Resend einrichten** — ohne API-Key kommt keine Formularanfrage an.
+      Empfänger (`CONTACT_INBOX_EMAIL`) ist bereits `autotal.office@gmail.com`.
+      **Als Absender geht Gmail nicht:** Resend versendet nur über eine
+      verifizierte eigene Domain. Es braucht also eine Domain (z. B.
+      `autotal.at`), dort die DNS-Einträge von Resend hinterlegen und
+      `RESEND_FROM_EMAIL` darauf setzen – etwa
+      `AutoTal <website@autotal.at>`.
+- [ ] **UID-Nummer** — steht nicht im Gewerbeschein, kommt vom Finanzamt. Ein
+      e.U. unter der Kleinunternehmergrenze hat unter Umständen gar keine.
+- [ ] **Firmenbuchgericht** — steht im Firmenbuchauszug. Für den Bezirk
+      Gänserndorf voraussichtlich das Landesgericht Korneuburg; das ist zu
+      bestätigen und wurde bewusst nicht geraten.
+- [ ] **Kammerzugehörigkeit prüfen** — im Impressum noch pauschal als
+      „Fachgruppe Fahrzeughandel“ angegeben.
+- [ ] **Finanzierungspartner** ersetzen — stehen noch als „Finanzierungspartner
+      1–3“, bewusst ohne echte Banknamen.
+- [ ] Social-Media-Profile eintragen, falls vorhanden.
+- [ ] Impressum und Datenschutz juristisch prüfen lassen.
 - [ ] Auftragsverarbeitungsverträge mit Resend und dem Hoster abschließen.
-- [ ] Finanzierungspartner durch die tatsächlichen ersetzen – die Platzhalter
-      behaupten bewusst keine Geschäftsbeziehung.
-- [ ] Resend-Domain verifizieren, `RESEND_FROM_EMAIL` und
-      `CONTACT_INBOX_EMAIL` setzen und einen Testversand durchführen.
+- [ ] Produktionsdatenbank anlegen; in Vercel setzen: `DATABASE_URL`,
+      `AUTH_SECRET`, `ENCRYPTION_KEY`, `NEXT_PUBLIC_SITE_URL`.
 - [ ] `SEED_ADMIN_PASSWORD` nach dem ersten Login ändern.
+
+> **Grundsatz:** Fehlende Angaben werden nirgends geraten. Ist ein Feld leer,
+> entfällt die Zeile im Impressum bzw. der Kontaktweg auf der Website – statt
+> eine erfundene Adresse, Nummer oder Behörde anzuzeigen.
+
+Alle Angaben sind unter `/admin/unternehmen` pflegbar, auch Gewerbewortlaut,
+Aufsichtsbehörde und GISA-Zahl. Ein Tippfehler im Impressum braucht damit
+kein Deployment.
 
 ---
 
 ## Bekannte Einschränkungen
 
-- **`prisma` CLI (dev-only)** zieht `deepmerge-ts` mit einer bekannten
-  Schwachstelle nach. Betroffen ist ausschließlich das Config-Parsing der
-  CLI, nicht das Laufzeit-Bundle. Ein Downgrade würde `prisma` und
-  `@prisma/client` auf unterschiedliche Hauptversionen zwingen. Beobachten und
-  mit dem nächsten Prisma-Release aktualisieren.
+- **Prisma-Transitive geprüft am 01.09.2026:** `prisma`, `@prisma/client`
+  und `@prisma/adapter-pg` laufen gemeinsam auf `7.10.0`. `npm audit` meldete
+  ursprünglich `deepmerge-ts < 8.0.0` über `@prisma/config` sowie
+  `mysql2 < 3.22.0` über `prisma`; ein `npm audit fix --force` hätte auf
+  `prisma@6.19.3` heruntergestuft. Stattdessen erzwingen npm-Overrides
+  `deepmerge-ts@8.0.2` und `mysql2@3.24.2`. `npm audit` und
+  `prisma generate` sind danach grün.
 - **Instagram-Token** wird nicht automatisch verlängert. Der Admin warnt sieben
   Tage vor Ablauf; die Verbindung ist dann neu herzustellen.
 - **Mock-Bilder** stammen von Unsplash und zeigen nicht das jeweils
   beschriebene Fahrzeug. Für den Echtbetrieb liefert der Provider die Fotos.
+- **Projektordner auf dem Desktop:** Wird der Ordner von iCloud Drive
+  synchronisiert, entstehen gelegentlich Kopien wie `routes.d 2.ts` in
+  `.next/` und `src/generated/`. TypeScript meldet dann `Duplicate identifier`.
+  Abhilfe:
+  ```bash
+  find . -path ./node_modules -prune -o -name "* [0-9].*" -delete
+  npx prisma generate
+  ```
+  Dauerhaft besser: das Projekt außerhalb des synchronisierten Desktops
+  ablegen.
 - **Rate Limiting** ist ein Fixed-Window-Zähler in der Datenbank. Für sehr
   hohes Aufkommen wäre ein spezialisierter Dienst (etwa Upstash) sinnvoller.

@@ -48,6 +48,13 @@ export type CompanyDto = {
   commercialRegisterNumber: string | null;
   commercialRegisterCourt: string | null;
 
+  /** Gewerbewortlaut laut Gewerberegister */
+  businessPurpose: string | null;
+  /** Zuständige Bezirkshauptmannschaft bzw. Magistrat */
+  supervisoryAuthority: string | null;
+  /** GISA-Zahl */
+  gisaNumber: string | null;
+
   contactPersonName: string | null;
   contactPersonRole: string | null;
   contactPersonEmail: string | null;

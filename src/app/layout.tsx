@@ -56,6 +56,15 @@ export async function generateMetadata(): Promise<Metadata> {
       locale: "de_AT",
       siteName: name,
       url: siteUrl(),
+      // PNG statt WebP: Einige Social-Vorschauen zeigen WebP nicht an.
+      images: [
+        {
+          url: "/autotal-logo.png",
+          width: 400,
+          height: 240,
+          alt: `${name} – Wähl' das Original`,
+        },
+      ],
     },
     robots: {
       index: true,

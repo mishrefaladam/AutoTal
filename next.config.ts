@@ -16,6 +16,12 @@ const nextConfig: NextConfig = {
         hostname: "images.unsplash.com",
         pathname: "/**",
       },
+      {
+        // Vercel Blob – hier landen die im Admin hochgeladenen Fahrzeugbilder.
+        protocol: "https",
+        hostname: "*.public.blob.vercel-storage.com",
+        pathname: "/**",
+      },
       // TODO(anbindung): Sobald ein echter VehicleProvider angebunden ist,
       // dessen Bild-Hostnamen hier ergänzen. Ohne Eintrag blockiert
       // next/image die Auslieferung – das ist Absicht und verhindert, dass

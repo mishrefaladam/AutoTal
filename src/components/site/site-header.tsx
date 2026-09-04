@@ -55,8 +55,8 @@ export function SiteHeader({
           : "border-b border-transparent bg-background",
       )}
     >
-      <div className="container-page flex h-16 items-center justify-between gap-4 lg:h-18">
-        <Logo name={companyName} />
+      <div className="container-page flex h-20 items-center justify-between gap-4 lg:h-24">
+        <Logo name={companyName} className="h-12 lg:h-16" priority />
 
         <nav aria-label="Hauptnavigation" className="hidden lg:block">
           <ul className="flex items-center gap-1">
@@ -119,7 +119,11 @@ export function SiteHeader({
             <SheetContent side="right" className="w-full max-w-sm p-0">
               <SheetHeader className="border-b border-border px-5 py-4">
                 <SheetTitle asChild>
-                  <Logo name={companyName} onNavigate={() => setMenuOpen(false)} />
+                  <Logo
+                    name={companyName}
+                    className="h-12"
+                    onNavigate={() => setMenuOpen(false)}
+                  />
                 </SheetTitle>
               </SheetHeader>
 

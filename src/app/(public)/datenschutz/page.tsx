@@ -37,7 +37,11 @@ export const metadata: Metadata = {
 
 export default async function PrivacyPage() {
   const company = await getCompany();
-  const contactEmail = company.email || "office@example.at";
+  // Kein erfundener Fallback: Eine ausgedachte Adresse in der
+  // Datenschutzerklärung wäre schlimmer als gar keine – Betroffenenrechte
+  // würden ins Leere laufen. Ist keine Adresse gepflegt, verweist die Seite
+  // auf die Telefonnummer.
+  const contactEmail = company.email.trim() || null;
 
   return (
     <div className="container-page py-14 lg:py-20">
@@ -73,17 +77,24 @@ export default async function PrivacyPage() {
               )}
               <br />
               <br />
-              E-Mail:{" "}
-              <a href={`mailto:${contactEmail}`} className="text-brand hover:underline">
-                {contactEmail}
-              </a>
+              {contactEmail && (
+                <>
+                  E-Mail:{" "}
+                  <a
+                    href={`mailto:${contactEmail}`}
+                    className="text-brand-strong hover:underline"
+                  >
+                    {contactEmail}
+                  </a>
+                </>
+              )}
               {company.phone && (
                 <>
                   <br />
                   Telefon:{" "}
                   <a
                     href={`tel:${company.phoneHref}`}
-                    className="text-brand tabular hover:underline"
+                    className="text-brand-strong tabular hover:underline"
                   >
                     {company.phone}
                   </a>
@@ -253,9 +264,21 @@ export default async function PrivacyPage() {
             </ul>
             <p className="text-muted-foreground mt-4">
               Wenden Sie sich dafür einfach an{" "}
-              <a href={`mailto:${contactEmail}`} className="text-brand hover:underline">
-                {contactEmail}
-              </a>
+              {contactEmail ? (
+                <a
+                  href={`mailto:${contactEmail}`}
+                  className="text-brand-strong hover:underline"
+                >
+                  {contactEmail}
+                </a>
+              ) : (
+                <a
+                  href={`tel:${company.phoneHref}`}
+                  className="text-brand-strong tabular hover:underline"
+                >
+                  {company.phone}
+                </a>
+              )}
               .
             </p>
           </section>
@@ -282,7 +305,7 @@ export default async function PrivacyPage() {
                 href="https://www.dsb.gv.at"
                 target="_blank"
                 rel="noopener noreferrer"
-                className="text-brand hover:underline"
+                className="text-brand-strong hover:underline"
               >
                 www.dsb.gv.at
               </a>
@@ -292,7 +315,7 @@ export default async function PrivacyPage() {
 
         <p className="text-muted-foreground mt-12 text-sm">
           Angaben zum Unternehmen finden Sie im{" "}
-          <Link href="/impressum" className="text-brand hover:underline">
+          <Link href="/impressum" className="text-brand-strong hover:underline">
             Impressum
           </Link>
           .

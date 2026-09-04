@@ -343,14 +343,67 @@ export function CompanyForm({
             label="Firmenbuchgericht"
             htmlFor="c-court"
             error={errors.commercialRegisterCourt?.message}
+            description="Steht im Firmenbuchauszug."
           >
             {({ id, describedBy, invalid }) => (
               <Input
                 id={id}
-                placeholder="Landesgericht Wels"
+                placeholder="Landesgericht Korneuburg"
                 aria-invalid={invalid}
                 aria-describedby={describedBy}
                 {...form.register("commercialRegisterCourt")}
+              />
+            )}
+          </FormField>
+
+          <FormField
+            label="GISA-Zahl"
+            htmlFor="c-gisa"
+            error={errors.gisaNumber?.message}
+            description="Aus dem Gewerbeschein (GISA-Auszug)."
+          >
+            {({ id, describedBy, invalid }) => (
+              <Input
+                id={id}
+                inputMode="numeric"
+                aria-invalid={invalid}
+                aria-describedby={describedBy}
+                {...form.register("gisaNumber")}
+              />
+            )}
+          </FormField>
+
+          <FormField
+            label="Aufsichtsbehörde"
+            htmlFor="c-authority"
+            error={errors.supervisoryAuthority?.message}
+            description="Zuständige Bezirkshauptmannschaft bzw. Magistrat."
+          >
+            {({ id, describedBy, invalid }) => (
+              <Input
+                id={id}
+                placeholder="Bezirkshauptmannschaft …"
+                aria-invalid={invalid}
+                aria-describedby={describedBy}
+                {...form.register("supervisoryAuthority")}
+              />
+            )}
+          </FormField>
+        </div>
+
+        <div className="mt-5">
+          <FormField
+            label="Gewerbewortlaut"
+            htmlFor="c-purpose"
+            error={errors.businessPurpose?.message}
+            description="Wortlaut exakt wie im Gewerberegister – nicht sinngemäß umformulieren."
+          >
+            {({ id, describedBy, invalid }) => (
+              <Input
+                id={id}
+                aria-invalid={invalid}
+                aria-describedby={describedBy}
+                {...form.register("businessPurpose")}
               />
             )}
           </FormField>

@@ -7,7 +7,6 @@ import {
   Info,
   Link2,
   Loader2,
-  RefreshCw,
   TriangleAlert,
   Unlink,
 } from "lucide-react";
@@ -21,84 +20,33 @@ import {
   disconnectInstagramAction,
   startInstagramConnect,
 } from "@/modules/social/instagram-actions";
-import { triggerVehicleSync } from "@/modules/vehicles/sync-action";
 import { formatDateTime } from "@/modules/vehicles/labels";
 
 /**
- * Integrationsübersicht: Fahrzeugquelle, Sync-Protokoll (US-27) und
- * Instagram-Verbindung (US-22).
+ * Integrationsübersicht: Fahrzeugbörse und Instagram-Verbindung (US-22).
+ *
+ * Der Fahrzeugbestand wird nicht mehr synchronisiert – er kommt aus dem
+ * eingebetteten willhaben-Widget. Es gibt daher weder Sync-Protokoll noch
+ * Provider-Auswahl.
  */
-
-type ProviderInfo = {
-  key: string;
-  label: string;
-  source: string;
-  configured: boolean;
-  active: boolean;
-};
-
-type SyncRunView = {
-  id: string;
-  source: string;
-  status: "RUNNING" | "SUCCESS" | "PARTIAL" | "FAILED";
-  startedAt: Date;
-  finishedAt: Date | null;
-  vehiclesFound: number;
-  vehiclesCreated: number;
-  vehiclesUpdated: number;
-  vehiclesDeactivated: number;
-  errorMessage: string | null;
-  triggeredBy: string;
-};
-
-const SYNC_STATUS: Record<
-  SyncRunView["status"],
-  { label: string; className: string }
-> = {
-  RUNNING: { label: "Läuft", className: "bg-muted text-muted-foreground" },
-  SUCCESS: { label: "Erfolgreich", className: "bg-success/12 text-success" },
-  PARTIAL: { label: "Teilweise", className: "bg-warning/15 text-warning-foreground" },
-  FAILED: { label: "Fehlgeschlagen", className: "bg-destructive/12 text-destructive" },
-};
-
-const TRIGGER_LABELS: Record<string, string> = {
-  manual: "manuell",
-  cron: "geplant",
-  cli: "Kommandozeile",
-  seed: "Seed",
-};
 
 type Feedback = { kind: "success" | "error"; message: string } | null;
 
 export function IntegrationsPanel({
-  providers,
-  syncRuns,
+  widgetProvider,
+  widgetLabel,
   instagram,
   instagramConfigured,
   initialFeedback,
 }: {
-  providers: ProviderInfo[];
-  syncRuns: SyncRunView[];
+  widgetProvider: string;
+  widgetLabel: string;
   instagram: InstagramConnection;
   instagramConfigured: boolean;
   initialFeedback: Feedback;
 }) {
   const [feedback, setFeedback] = useState<Feedback>(initialFeedback);
   const [pending, startTransition] = useTransition();
-
-  const activeProvider = providers.find((provider) => provider.active);
-
-  function handleSync() {
-    setFeedback(null);
-    startTransition(async () => {
-      const result = await triggerVehicleSync();
-      setFeedback(
-        result.ok
-          ? { kind: "success", message: result.data.message }
-          : { kind: "error", message: result.error },
-      );
-    });
-  }
 
   function handleConnect() {
     setFeedback(null);
@@ -153,175 +101,33 @@ export function IntegrationsPanel({
         </div>
       )}
 
-      {/* --- Fahrzeugquelle ---------------------------------------------- */}
+      {/* --- Fahrzeugbörse ----------------------------------------------- */}
       <AdminCard
-        title="Fahrzeugquelle"
-        description="Woher der Fahrzeugbestand kommt. Umgestellt wird über die Umgebungsvariable VEHICLE_PROVIDER."
-        action={
-          <Button
-            variant="brand"
-            size="xl"
-            onClick={handleSync}
-            disabled={pending}
-          >
-            {pending ? (
-              <Loader2
-                data-icon="inline-start"
-                className="animate-spin"
-                aria-hidden="true"
-              />
-            ) : (
-              <RefreshCw data-icon="inline-start" aria-hidden="true" />
-            )}
-            {pending ? "Läuft …" : "Jetzt synchronisieren"}
-          </Button>
-        }
+        title="Fahrzeugbörse"
+        description="Der Fahrzeugbestand wird von willhaben eingebettet und dort gepflegt."
       >
-        <ul className="space-y-3">
-          {providers.map((provider) => (
-            <li
-              key={provider.key}
-              className={cn(
-                "flex flex-wrap items-center justify-between gap-3 rounded-lg border p-4",
-                provider.active
-                  ? "border-brand/40 bg-brand-subtle/40"
-                  : "border-border",
-              )}
-            >
-              <div>
-                <p className="flex items-center gap-2 font-medium">
-                  {provider.label}
-                  {provider.active && (
-                    <Badge className="bg-brand text-brand-foreground border-transparent">
-                      aktiv
-                    </Badge>
-                  )}
-                </p>
-                <p className="text-muted-foreground mt-0.5 font-mono text-xs">
-                  VEHICLE_PROVIDER=&quot;{provider.key}&quot;
-                </p>
-              </div>
-
-              <Badge
-                variant="secondary"
-                className={cn(
-                  provider.configured
-                    ? "bg-success/12 text-success border-transparent"
-                    : "bg-muted text-muted-foreground border-transparent",
-                )}
-              >
-                {provider.configured ? "einsatzbereit" : "nicht eingerichtet"}
-              </Badge>
-            </li>
-          ))}
-        </ul>
-
-        {activeProvider && !activeProvider.configured && (
-          <p className="text-muted-foreground bg-muted/60 mt-4 flex gap-2.5 rounded-lg p-3.5 text-xs leading-relaxed">
-            <Info className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
-            <span>
-              Der aktive Anbieter „{activeProvider.label}“ ist noch nicht
-              angebunden. Solange keine offizielle Schnittstellendokumentation
-              und keine Zugangsdaten vorliegen, liefert er keine Fahrzeuge.
-              Setzen Sie VEHICLE_PROVIDER auf „mock“, um mit Testdaten zu
-              arbeiten.
-            </span>
-          </p>
-        )}
-      </AdminCard>
-
-      {/* --- Sync-Protokoll (US-27) --------------------------------------- */}
-      <AdminCard
-        title="Synchronisierungsprotokoll"
-        description="Die letzten Läufe mit Zeitpunkt, Ergebnis und aufgetretenen Fehlern."
-      >
-        {syncRuns.length === 0 ? (
-          <p className="text-muted-foreground text-sm">
-            Bisher wurde noch keine Synchronisierung durchgeführt.
-          </p>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <caption className="sr-only">
-                Protokoll der Fahrzeugsynchronisierungen
-              </caption>
-              <thead>
-                <tr className="border-border text-muted-foreground border-b text-left">
-                  <th scope="col" className="pb-2.5 pr-4 font-medium">
-                    Zeitpunkt
-                  </th>
-                  <th scope="col" className="pb-2.5 pr-4 font-medium">
-                    Status
-                  </th>
-                  <th scope="col" className="pb-2.5 pr-4 font-medium">
-                    Quelle
-                  </th>
-                  <th scope="col" className="pb-2.5 pr-4 text-right font-medium">
-                    Gefunden
-                  </th>
-                  <th scope="col" className="pb-2.5 pr-4 text-right font-medium">
-                    Neu
-                  </th>
-                  <th scope="col" className="pb-2.5 pr-4 text-right font-medium">
-                    Aktualisiert
-                  </th>
-                  <th scope="col" className="pb-2.5 text-right font-medium">
-                    Deaktiviert
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
-                {syncRuns.map((run) => {
-                  const status = SYNC_STATUS[run.status];
-
-                  return (
-                    <tr key={run.id} className="border-border border-b last:border-0">
-                      <td className="py-3 pr-4 align-top">
-                        <span className="tabular whitespace-nowrap">
-                          {formatDateTime(run.startedAt)}
-                        </span>
-                        <span className="text-muted-foreground block text-xs">
-                          {TRIGGER_LABELS[run.triggeredBy] ?? run.triggeredBy}
-                        </span>
-                      </td>
-
-                      <td className="py-3 pr-4 align-top">
-                        <Badge
-                          className={cn("border-transparent", status.className)}
-                        >
-                          {status.label}
-                        </Badge>
-
-                        {run.errorMessage && (
-                          <p className="text-destructive mt-1.5 max-w-md text-xs leading-relaxed">
-                            {run.errorMessage}
-                          </p>
-                        )}
-                      </td>
-
-                      <td className="text-muted-foreground py-3 pr-4 align-top font-mono text-xs">
-                        {run.source}
-                      </td>
-
-                      <td className="tabular py-3 pr-4 text-right align-top">
-                        {run.vehiclesFound}
-                      </td>
-                      <td className="tabular py-3 pr-4 text-right align-top">
-                        {run.vehiclesCreated}
-                      </td>
-                      <td className="tabular py-3 pr-4 text-right align-top">
-                        {run.vehiclesUpdated}
-                      </td>
-                      <td className="tabular py-3 text-right align-top">
-                        {run.vehiclesDeactivated}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+        <div className="border-border flex flex-wrap items-center justify-between gap-3 rounded-lg border p-4">
+          <div>
+            <p className="font-medium">{widgetLabel}</p>
+            <p className="text-muted-foreground mt-0.5 font-mono text-xs">
+              {widgetProvider}
+            </p>
           </div>
-        )}
+          <Badge className="bg-brand text-brand-foreground border-transparent">
+            aktiv
+          </Badge>
+        </div>
+
+        <p className="text-muted-foreground bg-muted/60 mt-4 flex gap-2.5 rounded-lg p-3.5 text-xs leading-relaxed">
+          <Info className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
+          <span>
+            Fahrzeuge werden ausschließlich auf willhaben gepflegt. Änderungen
+            dort erscheinen laut Anbieter unmittelbar auf der Website – es gibt
+            keine Synchronisierung, keinen Zwischenspeicher und keinen
+            API-Zugang. Der Wechsel auf das Carport-Widget betrifft nur die
+            Integrationskomponente; siehe README.
+          </span>
+        </p>
       </AdminCard>
 
       {/* --- Instagram (US-22) -------------------------------------------- */}
