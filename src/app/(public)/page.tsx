@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import Image from "next/image";
 import Link from "next/link";
 import {
@@ -32,6 +33,10 @@ import { getCompany } from "@/modules/company/repository";
  * deshalb wird die Seite für 10 Minuten zwischengespeichert.
  */
 export const revalidate = 600;
+
+export const metadata: Metadata = {
+  alternates: { canonical: "/" },
+};
 
 // Ruhiges Hero-Motiv; zeigt bewusst kein konkretes Bestandsfahrzeug.
 const HERO_IMAGE =
