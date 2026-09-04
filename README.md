@@ -276,6 +276,67 @@ für Privatkonten stellt Meta keine Veröffentlichungs-Schnittstelle bereit.
 6. **willhaben Widget-Lite-Einbettungscode** einsetzen, sobald willhaben den
    offiziellen Code bereitstellt.
 
+### Produktionsdatenbank
+
+Die Anwendung braucht eine verwaltete PostgreSQL-Datenbank. Empfohlen ist
+**Neon**, weil es sich über den Vercel-Marktplatz anbinden lässt und die
+Variablen dabei automatisch gesetzt werden.
+
+Neon stellt zwei Endpunkte bereit, und beide werden gebraucht:
+
+| Variable | Endpunkt | Wofür |
+| --- | --- | --- |
+| `DATABASE_URL` | **gepoolt** (Hostname enthält `-pooler`) | Die Anwendung zur Laufzeit |
+| `DIRECT_URL` | **direkt** (ohne `-pooler`) | Ausschließlich `prisma migrate deploy` |
+
+**Warum zwei?** Auf serverless Instanzen öffnet jede Funktion eine eigene
+Verbindung – ohne Pooling läuft die Datenbank ins Verbindungslimit. Umgekehrt
+nimmt `prisma migrate deploy` einen Advisory Lock, und der ist
+sitzungsgebunden: Über einen Transaction-Pooler kann er verlorengehen, die
+Migration hängt dann oder schlägt fehl.
+
+`DIRECT_URL` ist **optional**: Ist sie nicht gesetzt, laufen Migrationen über
+`DATABASE_URL`. Lokal – wo es keinen Pooler gibt – bleibt sie deshalb leer.
+Die Auswertung steht in [`prisma.config.ts`](prisma.config.ts).
+
+**SSL:** Neon verlangt es. Den Connection String unverändert übernehmen,
+inklusive `?sslmode=require`.
+
+**Migrationen beim Deployment:** `vercel.json` setzt
+
+```
+buildCommand: npm run db:deploy && npm run build
+```
+
+`db:deploy` ist `prisma migrate deploy` – wendet ausschließlich vorhandene
+Migrationen an, verändert nichts anderes und löscht keine Daten. Niemals
+`migrate dev` oder `db push` gegen Produktion.
+
+**Seed in Produktion:** `npm run db:seed` ist einmalig sinnvoll. Er legt
+Unternehmensdaten und Finanzierungskonfiguration an und ist idempotent –
+Bestehendes wird nicht überschrieben. Beispielfahrzeuge werden bei
+`NODE_ENV=production` bewusst **übersprungen**. Ein Admin-Benutzer entsteht nur,
+wenn `SEED_ADMIN_EMAIL` und `SEED_ADMIN_PASSWORD` gesetzt sind (Passwort
+mindestens 10 Zeichen). Beide Variablen danach wieder aus Vercel entfernen.
+
+### Umgebungsvariablen in Vercel
+
+Empirisch geprüft, was der Build tatsächlich braucht:
+
+| Variable | Build | Laufzeit |
+| --- | --- | --- |
+| `DATABASE_URL` | **erforderlich** – die statischen Seiten lesen beim Prerender aus der Datenbank | erforderlich |
+| `NEXT_PUBLIC_SITE_URL` | erforderlich für Sitemap, robots.txt und OpenGraph | erforderlich |
+| `DIRECT_URL` | für Migrationen bei gepoolter Datenbank | – |
+| `AUTH_SECRET` | nicht nötig | **erforderlich** – ohne sie ist keine Anmeldung im Admin möglich |
+| `ENCRYPTION_KEY` | nicht nötig | nur für Instagram-Tokens |
+| `BLOB_READ_WRITE_TOKEN` | nicht nötig | nur für Bilduploads |
+| `RESEND_API_KEY` | nicht nötig | ohne sie versenden Formulare nichts |
+| `OPENAI_API_KEY`, `INSTAGRAM_*` | nicht nötig | nur für die jeweilige Funktion |
+
+Der Build läuft also bereits mit `DATABASE_URL` und `NEXT_PUBLIC_SITE_URL`
+durch. Alles Weitere schaltet Funktionen frei, blockiert aber kein Deployment.
+
 ### Vor dem Livegang
 
 Eingetragen sind: Firmenwortlaut (`Autotal e.U.` – Schreibweise laut
