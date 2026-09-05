@@ -7,8 +7,9 @@ import {
   Building2,
   Car,
   ExternalLink,
-  LayoutDashboard,
+  Inbox,
   Landmark,
+  LayoutDashboard,
   LogOut,
   Menu,
   Plug,
@@ -39,6 +40,11 @@ const ADMIN_NAV = [
     href: "/admin/fahrzeuge",
     label: "Fahrzeuge",
     icon: Car,
+  },
+  {
+    href: "/admin/ankauf",
+    label: "Ankaufanfragen",
+    icon: Inbox,
   },
   {
     href: "/admin/unternehmen",
@@ -138,7 +144,7 @@ export function AdminShell({
       {/* Seitenleiste ab Desktop */}
       <aside className="border-border bg-background fixed inset-y-0 left-0 hidden w-64 flex-col border-r p-4 lg:flex">
         <div className="mb-6 px-2">
-          <Logo name={companyName} href="/admin/dashboard" className="h-11" />
+          <Logo name={companyName} href="/admin/dashboard" className="text-xl" />
           <p className="text-muted-foreground mt-2 text-xs">Verwaltung</p>
         </div>
 
@@ -148,7 +154,7 @@ export function AdminShell({
 
       {/* Kopfzeile auf Mobil */}
       <header className="border-border bg-background sticky top-0 z-40 flex h-16 items-center justify-between gap-3 border-b px-4 lg:hidden">
-        <Logo name={companyName} href="/admin/dashboard" className="h-11" />
+        <Logo name={companyName} href="/admin/dashboard" className="text-xl" />
 
         <Button
           variant="outline"

@@ -56,7 +56,7 @@ export function SiteHeader({
       )}
     >
       <div className="container-page flex h-20 items-center justify-between gap-4 lg:h-24">
-        <Logo name={companyName} className="h-12 lg:h-16" priority />
+        <Logo name={companyName} className="text-2xl lg:text-3xl" />
 
         <nav aria-label="Hauptnavigation" className="hidden lg:block">
           <ul className="flex items-center gap-1">
@@ -121,7 +121,7 @@ export function SiteHeader({
                 <SheetTitle asChild>
                   <Logo
                     name={companyName}
-                    className="h-12"
+                    className="text-2xl"
                     onNavigate={() => setMenuOpen(false)}
                   />
                 </SheetTitle>

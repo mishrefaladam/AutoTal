@@ -1,58 +1,68 @@
-import Image from "next/image";
 import Link from "next/link";
 
 import { cn } from "@/lib/utils";
 
 /**
- * Wort-Bild-Marke von AutoTal.
+ * Wortmarke von AutoTal.
  *
- * Das Logo ist eine in sich geschlossene dunkle Platte mit abgerundeten,
- * transparenten Ecken. Dieselbe Datei funktioniert deshalb auf hellem Grund
- * (Kopfzeile) wie auf dunklem (Fußzeile, Anmeldung) – eine zweite Fassung
- * ist nicht nötig.
+ * Bewusst reiner Text statt Bilddatei: schärfer auf jedem Display, kein
+ * zusätzlicher Netzwerkabruf, kein Layout-Sprung beim Laden und in jeder
+ * Größe frei skalierbar.
  *
- * Die Anzeigehöhe kommt über `className` (z. B. `h-11 lg:h-14`), damit sie
- * pro Breakpoint unterschiedlich sein kann. Die Bildmaße bleiben die
- * Originalmaße: Bei 400 px Quellbreite ist die Darstellung selbst auf
- * 3x-Displays noch scharf, solange sie unter ~130 px angezeigt wird.
+ * FARBEN – die Marke passt sich dem Untergrund von selbst an, ohne dass die
+ * Aufrufer eine Variante wählen müssen:
+ *
+ *   "AUTO"  erbt die Textfarbe des Elternelements (`currentColor`). Auf
+ *           hellem Grund also dunkel, in der Fußzeile hell.
+ *   "TAL"   nutzt `text-brand-strong`. Auf hellem Grund ist das die
+ *           abgedunkelte Goldvariante (lesbarer Kontrast), innerhalb von
+ *           `.bg-ink` schaltet globals.css dieselbe Variable auf das volle
+ *           Logo-Gold um.
+ *
+ * GRÖSSE kommt über `className` als Schriftgröße (z. B. "text-2xl lg:text-3xl"),
+ * nicht mehr als Höhe – die Marke ist jetzt Typografie, kein Bild.
+ *
+ * Der Schriftzug selbst ist eine Markenkonstante und stammt deshalb nicht aus
+ * den CompanySettings. Der dort gepflegte Name fließt weiterhin in die
+ * Beschriftung für Screenreader ein.
  */
 
-const LOGO_SRC = "/autotal-logo.webp";
-const LOGO_WIDTH = 400;
-const LOGO_HEIGHT = 240;
+const WORDMARK_LEAD = "AUTO";
+const WORDMARK_ACCENT = "TAL";
 
 export function Logo({
   name,
   href = "/",
   className,
-  priority = false,
   onNavigate,
 }: {
-  /** Firmenname – Bestandteil des Alternativtexts. */
+  /** Firmenname aus den CompanySettings – nur für die Screenreader-Beschriftung. */
   name: string;
   href?: string | null;
-  /** Steuert die Höhe, z. B. "h-11 lg:h-14". */
+  /** Steuert die Schriftgröße, z. B. "text-2xl lg:text-3xl". */
   className?: string;
-  /** true in der Kopfzeile: Das Logo gehört dort zum ersten Bildaufbau. */
-  priority?: boolean;
   onNavigate?: () => void;
 }) {
-  const image = (
-    <Image
-      src={LOGO_SRC}
-      alt={`${name} – Wähl' das Original`}
-      width={LOGO_WIDTH}
-      height={LOGO_HEIGHT}
-      priority={priority}
-      sizes="200px"
-      className="h-full w-auto object-contain"
-    />
+  const wordmark = (
+    <span
+      // aria-hidden, weil der zugängliche Name vom umgebenden Element kommt:
+      // sonst läse ein Screenreader den Schriftzug ein zweites Mal vor.
+      aria-hidden="true"
+      className="font-display leading-none font-extrabold tracking-[-0.02em] whitespace-nowrap uppercase"
+    >
+      {WORDMARK_LEAD}
+      <span className="text-brand-strong">{WORDMARK_ACCENT}</span>
+    </span>
   );
 
   if (!href) {
     return (
-      <span className={cn("inline-flex shrink-0 items-center", className)}>
-        {image}
+      <span
+        className={cn("inline-flex shrink-0 items-center", className)}
+        role="img"
+        aria-label={name}
+      >
+        {wordmark}
       </span>
     );
   }
@@ -63,11 +73,11 @@ export function Logo({
       onClick={onNavigate}
       aria-label={`${name} – zur Startseite`}
       className={cn(
-        "inline-flex shrink-0 items-center rounded-xl outline-none transition-opacity hover:opacity-90 focus-visible:ring-3 focus-visible:ring-ring/50",
+        "inline-flex shrink-0 items-center rounded-md outline-none transition-opacity hover:opacity-80 focus-visible:ring-3 focus-visible:ring-ring/50",
         className,
       )}
     >
-      {image}
+      {wordmark}
     </Link>
   );
 }

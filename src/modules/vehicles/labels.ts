@@ -3,6 +3,7 @@ import type {
   FuelType,
   TransmissionType,
   VehicleCondition,
+  VehicleStatus,
 } from "./types";
 
 /**
@@ -12,6 +13,25 @@ import type {
  * neuer Enum-Wert dazu, schlägt der Typecheck hier fehl, statt dass in der
  * UI ein roher Wert wie "PLUGIN_HYBRID" auftaucht.
  */
+
+/**
+ * Verfügbarkeit im eigenen Bestand.
+ *
+ * Nicht zu verwechseln mit `active`: Das steuert nur, ob ein Fahrzeug im
+ * Admin ausgeblendet ist. Der Status beschreibt, ob es noch zu haben ist.
+ */
+export const VEHICLE_STATUS_LABELS: Record<VehicleStatus, string> = {
+  IN_STOCK: "Im Bestand",
+  RESERVED: "Reserviert",
+  SOLD: "Verkauft",
+};
+
+/** Auswahlreihenfolge im Admin. */
+export const VEHICLE_STATUS_ORDER: VehicleStatus[] = [
+  "IN_STOCK",
+  "RESERVED",
+  "SOLD",
+];
 
 export const FUEL_LABELS: Record<FuelType, string> = {
   PETROL: "Benzin",

@@ -10,7 +10,10 @@ import { MANUAL_SOURCE } from "@/modules/vehicles/constants";
 import { formatEuro, formatKilometers } from "@/lib/money";
 import { cn } from "@/lib/utils";
 import { listVehiclesForAdmin } from "@/modules/vehicles/admin-repository";
-import { formatDateTime } from "@/modules/vehicles/labels";
+import {
+  VEHICLE_STATUS_LABELS,
+  formatDateTime,
+} from "@/modules/vehicles/labels";
 
 export const metadata: Metadata = { title: "Fahrzeuge" };
 
@@ -23,7 +26,10 @@ export const metadata: Metadata = { title: "Fahrzeuge" };
 export default async function AdminVehiclesPage() {
   const vehicles = await listVehiclesForAdmin();
 
-  const online = vehicles.filter((vehicle) => vehicle.active).length;
+  const inStock = vehicles.filter(
+    (vehicle) => vehicle.status === "IN_STOCK",
+  ).length;
+  const sold = vehicles.filter((vehicle) => vehicle.status === "SOLD").length;
   const external = vehicles.filter(
     (vehicle) => vehicle.externalSource !== MANUAL_SOURCE,
   ).length;
@@ -33,7 +39,7 @@ export default async function AdminVehiclesPage() {
       <AdminPageHeader
         title="Fahrzeuge"
         description={
-          `${online} von ${vehicles.length} Fahrzeugen sind online.` +
+          `${inStock} im Bestand, ${sold} verkauft, ${vehicles.length} insgesamt.` +
           (external > 0
             ? ` ${external} stammen aus einer externen Quelle und werden dort gepflegt.`
             : "")
@@ -99,6 +105,19 @@ export default async function AdminVehiclesPage() {
                   <div className="min-w-0 flex-1">
                     <div className="flex flex-wrap items-center gap-2">
                       <h2 className="font-semibold">{vehicle.title}</h2>
+
+                      {vehicle.status !== "IN_STOCK" && (
+                        <Badge
+                          className={cn(
+                            "border-transparent",
+                            vehicle.status === "SOLD"
+                              ? "bg-muted text-muted-foreground"
+                              : "bg-warning/15 text-warning-foreground",
+                          )}
+                        >
+                          {VEHICLE_STATUS_LABELS[vehicle.status]}
+                        </Badge>
+                      )}
 
                       {!vehicle.active && (
                         <Badge variant="secondary">offline</Badge>

@@ -33,7 +33,7 @@ const COMPANY_DATA = {
   // Firmenwortlaut im Impressum muss aber dem Register folgen.
   legalName: "Autotal e.U.",
   displayName: "AutoTal",
-  tagline: "Geprüfte Gebrauchtwagen in Strasshof an der Nordbahn",
+  tagline: "Geprüfte Gebrauchtwagen nahe Wien",
   aboutText:
     "AutoTal ist ein inhabergeführtes Autohaus in Strasshof an der Nordbahn. " +
     "Wir kaufen, prüfen und verkaufen Gebrauchtwagen – jedes Fahrzeug wird " +

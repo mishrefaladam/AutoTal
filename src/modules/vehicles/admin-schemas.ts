@@ -5,6 +5,7 @@ import {
   FuelType,
   TransmissionType,
   VehicleCondition,
+  VehicleStatus,
 } from "@/generated/prisma/enums";
 
 /**
@@ -133,6 +134,11 @@ export const vehicleFormSchema = z.object({
     message: "Bitte eine Fahrzeugart wählen.",
   }),
 
+  /** Verfügbarkeit im eigenen Bestand – unabhängig von `active`. */
+  status: z.enum(Object.values(VehicleStatus) as [string, ...string[]], {
+    message: "Bitte einen Status wählen.",
+  }),
+
   powerKw: optionalNumber(2000),
   displacementCcm: optionalNumber(10_000),
   color: optionalText(60),
@@ -162,6 +168,12 @@ export const vehicleFormSchema = z.object({
         .slice(0, 100),
     ),
 
+  /** Nur im Admin sichtbar, wird nie öffentlich ausgegeben. */
+  internalNotes: z
+    .string()
+    .trim()
+    .max(2000, "Die interne Notiz ist zu lang."),
+
   active: z.boolean(),
 });
 
@@ -181,6 +193,7 @@ export const EMPTY_VEHICLE_FORM: VehicleFormValues = {
   transmission: "MANUAL",
   bodyType: "SEDAN",
   condition: "USED",
+  status: "IN_STOCK",
   powerKw: "",
   displacementCcm: "",
   color: "",
@@ -190,5 +203,6 @@ export const EMPTY_VEHICLE_FORM: VehicleFormValues = {
   inspectionValidUntil: "",
   description: "",
   features: "",
+  internalNotes: "",
   active: true,
 };

@@ -37,6 +37,8 @@ import {
   FUEL_ORDER,
   TRANSMISSION_LABELS,
   TRANSMISSION_ORDER,
+  VEHICLE_STATUS_LABELS,
+  VEHICLE_STATUS_ORDER,
 } from "@/modules/vehicles/labels";
 
 /**
@@ -278,6 +280,18 @@ export function VehicleForm({
             }))}
           />
 
+          <SelectField
+            label="Status"
+            id="v-status"
+            error={errors.status?.message}
+            control={form.control}
+            name="status"
+            options={VEHICLE_STATUS_ORDER.map((value) => ({
+              value,
+              label: VEHICLE_STATUS_LABELS[value],
+            }))}
+          />
+
           <FormField label="Leistung (kW)" htmlFor="v-power" error={errors.powerKw?.message}>
             {({ id, describedBy, invalid }) => (
               <Input
@@ -362,6 +376,23 @@ export function VehicleForm({
                 aria-invalid={invalid}
                 aria-describedby={describedBy}
                 {...form.register("description")}
+              />
+            )}
+          </FormField>
+
+          <FormField
+            label="Interne Notiz"
+            htmlFor="v-internal-notes"
+            error={errors.internalNotes?.message}
+            description="Nur im Admin sichtbar – erscheint nirgends auf der Website."
+          >
+            {({ id, describedBy, invalid }) => (
+              <Textarea
+                id={id}
+                rows={3}
+                aria-invalid={invalid}
+                aria-describedby={describedBy}
+                {...form.register("internalNotes")}
               />
             )}
           </FormField>

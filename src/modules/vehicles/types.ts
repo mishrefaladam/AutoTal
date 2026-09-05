@@ -22,6 +22,7 @@ export type {
   FuelType,
   TransmissionType,
   VehicleCondition,
+  VehicleStatus,
 } from "@/generated/prisma/enums";
 
 export type VehicleImageDto = {

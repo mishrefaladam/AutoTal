@@ -25,8 +25,8 @@ import { getCompany } from "@/modules/company/repository";
 export const metadata: Metadata = {
   title: "Fahrzeuge",
   description:
-    "Unser aktueller Fahrzeugbestand – Gebrauchtwagen aus Strasshof an der " +
-    "Nordbahn. Alle Fahrzeuge geprüft und sofort verfügbar.",
+    "Unser aktueller Fahrzeugbestand – geprüfte Gebrauchtwagen nahe Wien. " +
+    "Alle Fahrzeuge geprüft und sofort verfügbar.",
   alternates: { canonical: "/fahrzeuge" },
 };
 

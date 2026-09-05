@@ -1,6 +1,9 @@
+import { ReferralPopup } from "@/components/marketing/referral-popup";
 import { SiteFooter } from "@/components/site/site-footer";
+import { StructuredData } from "@/components/site/structured-data";
 import { SiteHeader } from "@/components/site/site-header";
 import { WhatsAppFab } from "@/components/site/whatsapp-fab";
+import { buildWhatsAppUrl } from "@/lib/whatsapp";
 import { getCompany } from "@/modules/company/repository";
 
 /**
@@ -15,8 +18,18 @@ export default async function PublicLayout({
 }: LayoutProps<"/">) {
   const company = await getCompany();
 
+  // Eigene Nachricht für die Empfehlungsaktion, damit AutoTal beim Eingang
+  // sofort erkennt, worum es geht.
+  const referralWhatsAppHref = buildWhatsAppUrl(
+    company.whatsappNumber,
+    `Guten Tag! Ich möchte jemanden für den ${company.displayName}-Empfehlungsbonus empfehlen.`,
+  );
+
   return (
     <>
+      {/* Strukturierte Daten – gelten für alle öffentlichen Seiten. */}
+      <StructuredData company={company} />
+
       {/* Sprungmarke für Tastatur- und Screenreader-Nutzung. */}
       <a
         href="#inhalt"
@@ -41,6 +54,9 @@ export default async function PublicLayout({
         whatsappNumber={company.whatsappNumber}
         companyName={company.displayName}
       />
+
+      {/* Marketing-Popup – bewusst nur im öffentlichen Bereich. */}
+      <ReferralPopup whatsappHref={referralWhatsAppHref} />
     </>
   );
 }

@@ -54,6 +54,16 @@ enum BodyType {
   OTHER
 }
 
+/// Verkaufsstatus eines von AutoTal selbst gehaltenen Fahrzeugs.
+///
+/// Getrennt von `active`: `active` steuert nur die Sichtbarkeit im Admin,
+/// `status` beschreibt die tatsächliche Verfügbarkeit.
+enum VehicleStatus {
+  IN_STOCK
+  RESERVED
+  SOLD
+}
+
 enum VehicleCondition {
   NEW
   USED
@@ -112,6 +122,14 @@ model Vehicle {
   /// Ausstattungsliste (US-05)
   features    String[] @default([])
 
+  // -- Bestandsführung -------------------------------------------------------
+  /// Verfügbarkeit im eigenen Bestand
+  status VehicleStatus @default(IN_STOCK)
+  /// Gesetzt, sobald status auf SOLD wechselt
+  soldAt DateTime?
+  /// Nur im Admin sichtbar, nie öffentlich ausgegeben
+  internalNotes String @default("")
+
   images       VehicleImage[]
   socialDrafts SocialDraft[]
 
@@ -126,6 +144,7 @@ model Vehicle {
   @@index([active, transmission])
   @@index([active, mileageKm])
   @@index([active, firstRegistration])
+  @@index([status, createdAt])
 }
 
 model VehicleImage {
@@ -150,6 +169,63 @@ model VehicleImage {
 // ---------------------------------------------------------------------------
 
 /// Singleton – es existiert genau eine Zeile mit id = "default".
+/// Bearbeitungsstand einer Kunden-Ankaufanfrage.
+enum PurchaseInquiryStatus {
+  NEW
+  CONTACTED
+  APPOINTMENT
+  OFFER_MADE
+  PURCHASED
+  REJECTED
+}
+
+/// Ein Fahrzeug, das ein Kunde AutoTal verkaufen möchte (US-11).
+///
+/// BEWUSST KEIN Vehicle: Ein Vehicle ist ein Fahrzeug im eigenen Bestand mit
+/// Preis, Bildern und Social-Media-Bezug. Eine Ankaufanfrage ist ein
+/// Kundenkontakt mit Fahrzeugangaben aus zweiter Hand, die noch niemand
+/// geprüft hat. Die beiden zu vermischen würde ungeprüfte Kundenangaben in
+/// den Bestand tragen.
+///
+/// DATENSCHUTZ: Enthält personenbezogene Daten. Gespeichert wird nur, was das
+/// Formular ohnehin erhebt und was für die Rückmeldung gebraucht wird. Für
+/// eine Löschfrist ist die Datenschutzerklärung maßgeblich.
+model VehiclePurchaseInquiry {
+  id String @id @default(cuid())
+
+  // -- Kunde ------------------------------------------------------------------
+  customerName  String
+  customerPhone String
+  customerEmail String?
+
+  // -- Fahrzeug (Angaben des Kunden, ungeprüft) -------------------------------
+  make                  String
+  model                 String
+  firstRegistrationYear Int
+  mileageKm             Int
+  fuel                  FuelType
+  transmission          TransmissionType
+  /// Fahrgestellnummer, falls angegeben
+  vin                   String?
+  /// Preisvorstellung in Cent (Konvention des Projekts)
+  priceExpectationCents Int?
+  /// Freitext des Kunden zu Zustand und Anmerkungen
+  message               String @default("")
+
+  // -- Bearbeitung ------------------------------------------------------------
+  status        PurchaseInquiryStatus @default(NEW)
+  /// Woher die Anfrage kam, derzeit immer "website"
+  source        String                @default("website")
+  /// Nur im Admin sichtbar
+  internalNotes String                @default("")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([status, createdAt])
+  @@index([createdAt])
+}
+
 model CompanySettings {
   id String @id @default("default")
 

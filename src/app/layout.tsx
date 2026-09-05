@@ -36,6 +36,16 @@ const archivo = Archivo({
   display: "swap",
 });
 
+/**
+ * Marketing-Ortsangabe für Titel und Vorschau.
+ *
+ * Bewusst eine Konstante und nicht `company.city`: Der Firmensitz bleibt
+ * Strasshof an der Nordbahn und steht unverändert in Impressum, Fußzeile,
+ * Kontaktseite und den strukturierten Daten. Hier geht es um die
+ * Suchanfrage, nach der Kundinnen und Kunden tatsächlich suchen.
+ */
+const MARKETING_LOCATION_CLAIM = "Gebrauchtwagen nahe Wien";
+
 export async function generateMetadata(): Promise<Metadata> {
   const company = await getCompany();
   const name = company.displayName || "AutoTal";
@@ -43,7 +53,7 @@ export async function generateMetadata(): Promise<Metadata> {
   return {
     metadataBase: new URL(siteUrl()),
     title: {
-      default: `${name} – Gebrauchtwagen${company.city ? ` in ${company.city}` : ""}`,
+      default: `${name} – ${MARKETING_LOCATION_CLAIM}`,
       template: `%s | ${name}`,
     },
     description:

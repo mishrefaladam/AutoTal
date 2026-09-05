@@ -5,7 +5,7 @@ import { z } from "zod";
 import { renderNotificationMail } from "@/integrations/resend/templates";
 import { sendMail } from "@/integrations/resend";
 import { logger } from "@/lib/logger";
-import { formatEuro, formatKilometers } from "@/lib/money";
+import { eurosToCents, formatEuro, formatKilometers } from "@/lib/money";
 import {
   RATE_LIMITS,
   type RateLimitRule,
@@ -13,6 +13,7 @@ import {
   rateLimitMessage,
 } from "@/lib/rate-limit";
 import { type ActionResult, fail, ok, toActionResult } from "@/lib/result";
+import { createPurchaseInquiry } from "@/modules/purchase-inquiries/repository";
 import { FUEL_LABELS, TRANSMISSION_LABELS } from "@/modules/vehicles/labels";
 
 import { contactSchema, sellCarSchema, toFieldErrors } from "./schemas";
@@ -29,9 +30,13 @@ import { contactSchema, sellCarSchema, toFieldErrors } from "./schemas";
  * Ablauf für alle: Rate Limit -> Validierung -> Anreicherung aus der
  * Datenbank -> Versand über Resend.
  *
- * DATENSCHUTZ: Formulardaten werden NICHT in der Datenbank gespeichert. Sie
- * gehen ausschließlich per E-Mail an das Autohaus. Wer das ändert, muss die
- * Datenschutzerklärung anpassen und eine Löschfrist definieren.
+ * DATENSCHUTZ: Das Kontaktformular wird NICHT gespeichert – es geht
+ * ausschließlich per E-Mail an das Autohaus.
+ *
+ * Die Ankaufanfrage ist die Ausnahme: Sie wird zusätzlich als
+ * VehiclePurchaseInquiry gespeichert, weil sie im Admin bearbeitet werden
+ * muss (Status, Rückmeldung, Notizen). Dafür sind Löschfrist und Hinweis in
+ * der Datenschutzerklärung erforderlich.
  *
  * Es wird nie eine rohe Exception zum Client durchgereicht – Fehler kommen als
  * `ActionResult` mit einer für Nutzer verständlichen Meldung zurück (US-29).
@@ -122,6 +127,27 @@ export async function submitSellCarRequest(
     async (data) => {
       const vehicleLabel = `${data.make} ${data.model}`;
 
+      // Zuerst speichern: Der Datensatz im Admin ist die belastbare
+      // Zustellung. Schlägt das fehl, war die Anfrage nicht erfolgreich und
+      // der Fehler geht an den Kunden.
+      await createPurchaseInquiry({
+        customerName: data.name,
+        customerPhone: data.phone,
+        customerEmail: data.email,
+        make: data.make,
+        model: data.model,
+        firstRegistrationYear: data.firstRegistrationYear,
+        mileageKm: data.mileageKm,
+        fuel: data.fuel,
+        transmission: data.transmission,
+        vin: data.vin,
+        priceExpectationCents:
+          data.priceExpectationEuro !== undefined
+            ? eurosToCents(data.priceExpectationEuro)
+            : undefined,
+        message: data.condition ?? "",
+      });
+
       const mail = renderNotificationMail({
         heading: `Ankaufangebot: ${vehicleLabel}`,
         intro: `${data.name} möchte ein Fahrzeug verkaufen.`,
@@ -146,13 +172,23 @@ export async function submitSellCarRequest(
         ],
       });
 
-      await sendMail({
-        subject: `Ankauf-Anfrage: ${vehicleLabel} (EZ ${data.firstRegistrationYear})`,
-        html: mail.html,
-        text: mail.text,
-        replyTo: data.email,
-        formName: "ankauf",
-      });
+      // Die Benachrichtigung ist Komfort, nicht die Zustellung. Ist Resend
+      // nicht eingerichtet oder gerade gestört, wäre es falsch, dem Kunden
+      // einen Fehler zu zeigen – seine Anfrage liegt bereits im Admin.
+      try {
+        await sendMail({
+          subject: `Ankauf-Anfrage: ${vehicleLabel} (EZ ${data.firstRegistrationYear})`,
+          html: mail.html,
+          text: mail.text,
+          replyTo: data.email,
+          formName: "ankauf",
+        });
+      } catch (error) {
+        logger.error(
+          "Ankaufanfrage gespeichert, aber E-Mail-Benachrichtigung fehlgeschlagen",
+          { error, formName: "ankauf" },
+        );
+      }
     },
   );
 }

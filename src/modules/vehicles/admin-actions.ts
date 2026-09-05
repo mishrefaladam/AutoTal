@@ -41,7 +41,10 @@ function generateManualExternalId(): string {
   return `man-${randomBytes(6).toString("hex")}`;
 }
 
-function toVehicleData(data: z.output<typeof vehicleFormSchema>) {
+function toVehicleData(
+  data: z.output<typeof vehicleFormSchema>,
+  previousSoldAt: Date | null = null,
+) {
   return {
     make: data.make,
     model: data.model,
@@ -63,6 +66,12 @@ function toVehicleData(data: z.output<typeof vehicleFormSchema>) {
     inspectionValidUntil: data.inspectionValidUntil,
     description: data.description,
     features: data.features,
+    status: data.status as never,
+    internalNotes: data.internalNotes,
+    // Das Verkaufsdatum führt sich selbst: Es wird beim Wechsel auf SOLD
+    // gesetzt und beim Zurücknehmen wieder geleert. So kann es nicht
+    // widersprüchlich zum Status stehen.
+    soldAt: data.status === "SOLD" ? (previousSoldAt ?? new Date()) : null,
     active: data.active,
     lastSyncedAt: new Date(),
   };
@@ -149,7 +158,7 @@ export async function updateVehicle(
 
     const existing = await prisma.vehicle.findUnique({
       where: { id: outer.data.id },
-      select: { id: true, externalSource: true },
+      select: { id: true, externalSource: true, soldAt: true },
     });
 
     if (!existing) {
@@ -170,7 +179,9 @@ export async function updateVehicle(
     // Der Slug bleibt unverändert: Er ist die öffentliche URL.
     await prisma.vehicle.update({
       where: { id: outer.data.id },
-      data: toVehicleData(parsed.data),
+      // Bereits gesetztes Verkaufsdatum durchreichen, damit es beim
+      // erneuten Speichern nicht auf heute springt.
+      data: toVehicleData(parsed.data, existing.soldAt),
     });
 
     logger.info("Fahrzeug bearbeitet", {

@@ -36,7 +36,7 @@ export default async function AdminLoginPage({
     <div className="bg-muted/40 flex min-h-dvh flex-col items-center justify-center px-5 py-12">
       <div className="w-full max-w-sm">
         <div className="mb-8 flex justify-center">
-          <Logo name={company.displayName} href="/" className="h-20" />
+          <Logo name={company.displayName} href="/" className="text-3xl" />
         </div>
 
         <div className="border-border bg-card rounded-xl border p-7 shadow-[var(--shadow-card)]">

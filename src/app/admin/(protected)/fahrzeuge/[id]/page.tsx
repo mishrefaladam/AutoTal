@@ -53,6 +53,7 @@ export default async function EditVehiclePage({
     transmission: vehicle.transmission,
     bodyType: vehicle.bodyType,
     condition: vehicle.condition,
+    status: vehicle.status,
     powerKw: vehicle.powerKw !== null ? String(vehicle.powerKw) : "",
     displacementCcm:
       vehicle.displacementCcm !== null ? String(vehicle.displacementCcm) : "",
@@ -64,6 +65,7 @@ export default async function EditVehiclePage({
     inspectionValidUntil: toDateValue(vehicle.inspectionValidUntil),
     description: vehicle.description,
     features: vehicle.features.join("\n"),
+    internalNotes: vehicle.internalNotes,
     active: vehicle.active,
   };
 
