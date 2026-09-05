@@ -51,6 +51,25 @@ describe("Footer – Kontakt zeigt nur vorhandene CompanySettings-Daten", () => 
   });
 });
 
+describe("Footer – keine leere Kontakt-Karte ohne Daten", () => {
+  it("blendet die ganze Kontakt-Spalte aus, statt Überschrift ohne Inhalt zu zeigen", () => {
+    // Ohne CompanySettings (frische Production-DB) wären sonst Überschrift
+    // "Kontakt" und eine leere <address> übrig – wirkt wie ein Fehler.
+    assert.match(footer, /const hasContactInfo = Boolean\(/);
+    assert.match(footer, /\{hasContactInfo && \(/);
+  });
+
+  it("berücksichtigt Adresse, Telefon, E-Mail und WhatsApp bei der Prüfung", () => {
+    const check = footer.slice(
+      footer.indexOf("const hasContactInfo"),
+      footer.indexOf(");", footer.indexOf("const hasContactInfo")),
+    );
+    for (const field of ["company.addressLine", "company.phone", "company.email", "whatsappHref"]) {
+      assert.ok(check.includes(field), `${field} fehlt in der hasContactInfo-Prüfung`);
+    }
+  });
+});
+
 describe("Footer – Öffnungszeiten ohne erfundene Defaults", () => {
   it("zeigt bei leeren Öffnungszeiten den neutralen Hinweis statt einer Tabelle", () => {
     assert.match(footer, /openingDays\.length > 0/);
@@ -74,5 +93,12 @@ describe("Kontaktseite – Direkt erreichen zeigt nur vorhandene Daten", () => {
   it("zeigt bei leeren Öffnungszeiten den neutralen Hinweis statt einer Tabelle", () => {
     assert.match(kontakt, /openingDays\.length > 0/);
     assert.match(kontakt, /OPENING_HOURS_UNKNOWN_LABEL/);
+  });
+
+  it("blendet die 'Direkt erreichen'-Karte aus, statt sie leer zu zeigen", () => {
+    assert.match(kontakt, /const hasDirectContact = Boolean\(/);
+    assert.match(kontakt, /\{hasDirectContact && \(/);
+    // Die Öffnungszeiten-Karte darunter bleibt unabhängig davon immer sichtbar.
+    assert.match(kontakt, /\{\/\* Öffnungszeiten \*\/\}/);
   });
 });

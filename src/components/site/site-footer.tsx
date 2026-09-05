@@ -29,6 +29,13 @@ export function SiteFooter({ company }: { company: CompanyDto }) {
     generalWhatsAppMessage(company.displayName),
   );
 
+  // Ohne einen einzigen Kanal bliebe nur die Überschrift "Kontakt" über einer
+  // leeren Adresse stehen – das wirkt wie ein Fehler, nicht wie ein leerer
+  // Zustand. Dann lieber die ganze Spalte auslassen.
+  const hasContactInfo = Boolean(
+    company.addressLine || company.phone || company.email || whatsappHref,
+  );
+
   return (
     <footer className="bg-ink text-ink-foreground mt-auto">
       <div className="container-page py-14 lg:py-16">
@@ -88,71 +95,73 @@ export function SiteFooter({ company }: { company: CompanyDto }) {
           </nav>
 
           {/* Kontakt */}
-          <section aria-labelledby="footer-contact-heading">
-            <h2 id="footer-contact-heading" className={COLUMN_HEADING}>
-              Kontakt
-            </h2>
+          {hasContactInfo && (
+            <section aria-labelledby="footer-contact-heading">
+              <h2 id="footer-contact-heading" className={COLUMN_HEADING}>
+                Kontakt
+              </h2>
 
-            <address className="mt-4 space-y-3 text-sm not-italic">
-              {company.addressLine && (
-                <p className="text-ink-muted flex gap-2.5">
-                  <MapPin className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
-                  <span>
-                    {company.street}
-                    <br />
-                    {company.postalCode} {company.city}
-                  </span>
-                </p>
-              )}
+              <address className="mt-4 space-y-3 text-sm not-italic">
+                {company.addressLine && (
+                  <p className="text-ink-muted flex gap-2.5">
+                    <MapPin className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
+                    <span>
+                      {company.street}
+                      <br />
+                      {company.postalCode} {company.city}
+                    </span>
+                  </p>
+                )}
 
-              {company.phone && (
-                <p className="flex gap-2.5">
-                  <Phone
-                    className="text-ink-muted mt-0.5 size-4 shrink-0"
-                    aria-hidden="true"
-                  />
-                  <a
-                    href={`tel:${company.phoneHref}`}
-                    className="text-ink-muted hover:text-ink-foreground tabular rounded transition-colors focus-visible:ring-3 focus-visible:ring-white/30 focus-visible:outline-none"
-                  >
-                    {company.phone}
-                  </a>
-                </p>
-              )}
+                {company.phone && (
+                  <p className="flex gap-2.5">
+                    <Phone
+                      className="text-ink-muted mt-0.5 size-4 shrink-0"
+                      aria-hidden="true"
+                    />
+                    <a
+                      href={`tel:${company.phoneHref}`}
+                      className="text-ink-muted hover:text-ink-foreground tabular rounded transition-colors focus-visible:ring-3 focus-visible:ring-white/30 focus-visible:outline-none"
+                    >
+                      {company.phone}
+                    </a>
+                  </p>
+                )}
 
-              {company.email && (
-                <p className="flex gap-2.5">
-                  <Mail
-                    className="text-ink-muted mt-0.5 size-4 shrink-0"
-                    aria-hidden="true"
-                  />
-                  <a
-                    href={`mailto:${company.email}`}
-                    className="text-ink-muted hover:text-ink-foreground rounded break-all transition-colors focus-visible:ring-3 focus-visible:ring-white/30 focus-visible:outline-none"
-                  >
-                    {company.email}
-                  </a>
-                </p>
-              )}
+                {company.email && (
+                  <p className="flex gap-2.5">
+                    <Mail
+                      className="text-ink-muted mt-0.5 size-4 shrink-0"
+                      aria-hidden="true"
+                    />
+                    <a
+                      href={`mailto:${company.email}`}
+                      className="text-ink-muted hover:text-ink-foreground rounded break-all transition-colors focus-visible:ring-3 focus-visible:ring-white/30 focus-visible:outline-none"
+                    >
+                      {company.email}
+                    </a>
+                  </p>
+                )}
 
-              {whatsappHref && (
-                <p className="flex gap-2.5">
-                  <MessageCircle
-                    className="text-ink-muted mt-0.5 size-4 shrink-0"
-                    aria-hidden="true"
-                  />
-                  <a
-                    href={whatsappHref}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-ink-muted hover:text-ink-foreground rounded transition-colors focus-visible:ring-3 focus-visible:ring-white/30 focus-visible:outline-none"
-                  >
-                    WhatsApp
-                  </a>
-                </p>
-              )}
-            </address>
-          </section>
+                {whatsappHref && (
+                  <p className="flex gap-2.5">
+                    <MessageCircle
+                      className="text-ink-muted mt-0.5 size-4 shrink-0"
+                      aria-hidden="true"
+                    />
+                    <a
+                      href={whatsappHref}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-ink-muted hover:text-ink-foreground rounded transition-colors focus-visible:ring-3 focus-visible:ring-white/30 focus-visible:outline-none"
+                    >
+                      WhatsApp
+                    </a>
+                  </p>
+                )}
+              </address>
+            </section>
+          )}
 
           {/* Öffnungszeiten */}
           <section aria-labelledby="footer-hours-heading">

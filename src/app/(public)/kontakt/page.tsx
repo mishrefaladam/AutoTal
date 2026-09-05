@@ -38,6 +38,16 @@ export default async function ContactPage() {
       )}`
     : null;
 
+  // Ohne einen einzigen Kanal wäre die Karte nur eine Überschrift über einer
+  // leeren Liste – das sieht wie ein Fehler aus, nicht wie ein leerer Zustand.
+  const hasDirectContact = Boolean(
+    company.phone ||
+      company.email ||
+      company.addressLine ||
+      company.contactPersonName ||
+      whatsappHref,
+  );
+
   return (
     <Section aria-labelledby="kontakt">
       <div className="mb-10 max-w-2xl lg:mb-14">
@@ -68,105 +78,107 @@ export default async function ContactPage() {
 
         {/* Direktkontakt */}
         <aside className="space-y-6">
-          <div className="border-border bg-card rounded-xl border p-6">
-            <h2 className="font-display text-lg font-bold">Direkt erreichen</h2>
+          {hasDirectContact && (
+            <div className="border-border bg-card rounded-xl border p-6">
+              <h2 className="font-display text-lg font-bold">Direkt erreichen</h2>
 
-            <ul className="mt-5 space-y-4 text-sm">
-              {company.phone && (
-                <li className="flex gap-3">
-                  <Phone
-                    className="text-muted-foreground mt-0.5 size-4 shrink-0"
-                    aria-hidden="true"
-                  />
-                  <div>
-                    <p className="text-muted-foreground">Telefon</p>
-                    <a
-                      href={`tel:${company.phoneHref}`}
-                      className="tabular font-medium hover:underline"
-                    >
-                      {company.phone}
+              <ul className="mt-5 space-y-4 text-sm">
+                {company.phone && (
+                  <li className="flex gap-3">
+                    <Phone
+                      className="text-muted-foreground mt-0.5 size-4 shrink-0"
+                      aria-hidden="true"
+                    />
+                    <div>
+                      <p className="text-muted-foreground">Telefon</p>
+                      <a
+                        href={`tel:${company.phoneHref}`}
+                        className="tabular font-medium hover:underline"
+                      >
+                        {company.phone}
+                      </a>
+                    </div>
+                  </li>
+                )}
+
+                {company.email && (
+                  <li className="flex gap-3">
+                    <Mail
+                      className="text-muted-foreground mt-0.5 size-4 shrink-0"
+                      aria-hidden="true"
+                    />
+                    <div className="min-w-0">
+                      <p className="text-muted-foreground">E-Mail</p>
+                      <a
+                        href={`mailto:${company.email}`}
+                        className="font-medium break-all hover:underline"
+                      >
+                        {company.email}
+                      </a>
+                    </div>
+                  </li>
+                )}
+
+                {company.addressLine && (
+                  <li className="flex gap-3">
+                    <MapPin
+                      className="text-muted-foreground mt-0.5 size-4 shrink-0"
+                      aria-hidden="true"
+                    />
+                    <div>
+                      <p className="text-muted-foreground">Adresse</p>
+                      <address className="font-medium not-italic">
+                        {company.street}
+                        <br />
+                        {company.postalCode} {company.city}
+                      </address>
+                    </div>
+                  </li>
+                )}
+
+                {company.contactPersonName && (
+                  <li className="flex gap-3">
+                    <User
+                      className="text-muted-foreground mt-0.5 size-4 shrink-0"
+                      aria-hidden="true"
+                    />
+                    <div>
+                      <p className="text-muted-foreground">Ansprechpartner</p>
+                      <p className="font-medium">{company.contactPersonName}</p>
+                      {company.contactPersonRole && (
+                        <p className="text-muted-foreground text-xs">
+                          {company.contactPersonRole}
+                        </p>
+                      )}
+                    </div>
+                  </li>
+                )}
+              </ul>
+
+              <div className="mt-6 space-y-3">
+                {whatsappHref && (
+                  <Button
+                    asChild
+                    size="xl"
+                    className="w-full bg-[#25D366] text-white hover:bg-[#1eb757] focus-visible:ring-[#25D366]/40"
+                  >
+                    <a href={whatsappHref} target="_blank" rel="noopener noreferrer">
+                      Über WhatsApp schreiben
                     </a>
-                  </div>
-                </li>
-              )}
+                  </Button>
+                )}
 
-              {company.email && (
-                <li className="flex gap-3">
-                  <Mail
-                    className="text-muted-foreground mt-0.5 size-4 shrink-0"
-                    aria-hidden="true"
-                  />
-                  <div className="min-w-0">
-                    <p className="text-muted-foreground">E-Mail</p>
-                    <a
-                      href={`mailto:${company.email}`}
-                      className="font-medium break-all hover:underline"
-                    >
-                      {company.email}
+                {mapsHref && (
+                  <Button asChild variant="outline" size="xl" className="w-full">
+                    <a href={mapsHref} target="_blank" rel="noopener noreferrer">
+                      <MapPin data-icon="inline-start" aria-hidden="true" />
+                      Route planen
                     </a>
-                  </div>
-                </li>
-              )}
-
-              {company.addressLine && (
-                <li className="flex gap-3">
-                  <MapPin
-                    className="text-muted-foreground mt-0.5 size-4 shrink-0"
-                    aria-hidden="true"
-                  />
-                  <div>
-                    <p className="text-muted-foreground">Adresse</p>
-                    <address className="font-medium not-italic">
-                      {company.street}
-                      <br />
-                      {company.postalCode} {company.city}
-                    </address>
-                  </div>
-                </li>
-              )}
-
-              {company.contactPersonName && (
-                <li className="flex gap-3">
-                  <User
-                    className="text-muted-foreground mt-0.5 size-4 shrink-0"
-                    aria-hidden="true"
-                  />
-                  <div>
-                    <p className="text-muted-foreground">Ansprechpartner</p>
-                    <p className="font-medium">{company.contactPersonName}</p>
-                    {company.contactPersonRole && (
-                      <p className="text-muted-foreground text-xs">
-                        {company.contactPersonRole}
-                      </p>
-                    )}
-                  </div>
-                </li>
-              )}
-            </ul>
-
-            <div className="mt-6 space-y-3">
-              {whatsappHref && (
-                <Button
-                  asChild
-                  size="xl"
-                  className="w-full bg-[#25D366] text-white hover:bg-[#1eb757] focus-visible:ring-[#25D366]/40"
-                >
-                  <a href={whatsappHref} target="_blank" rel="noopener noreferrer">
-                    Über WhatsApp schreiben
-                  </a>
-                </Button>
-              )}
-
-              {mapsHref && (
-                <Button asChild variant="outline" size="xl" className="w-full">
-                  <a href={mapsHref} target="_blank" rel="noopener noreferrer">
-                    <MapPin data-icon="inline-start" aria-hidden="true" />
-                    Route planen
-                  </a>
-                </Button>
-              )}
+                  </Button>
+                )}
+              </div>
             </div>
-          </div>
+          )}
 
           {/* Öffnungszeiten */}
           <div className="border-border bg-card rounded-xl border p-6">
