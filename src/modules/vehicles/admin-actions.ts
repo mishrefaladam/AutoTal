@@ -165,13 +165,15 @@ export async function updateVehicle(
       return fail("Dieses Fahrzeug wurde nicht gefunden.", { code: "NOT_FOUND" });
     }
 
-    // Fahrzeuge aus einer externen Quelle würde der nächste Sync wieder
-    // überschreiben – das wäre für den Bearbeitenden nicht nachvollziehbar.
+    // Altbestand aus einer früheren Datenquelle bleibt schreibgeschützt:
+    // Diese Datensätze wurden nie im Admin gepflegt, ihre Herkunft ist nicht
+    // mehr nachvollziehbar. Statt sie halb zu bearbeiten, legt man besser ein
+    // eigenes Fahrzeug an.
     if (existing.externalSource !== MANUAL_SOURCE) {
       return fail(
-        `Dieses Fahrzeug stammt aus der Quelle „${existing.externalSource}“ und ` +
-          `wird bei der nächsten Synchronisierung überschrieben. Änderungen ` +
-          `müssen dort vorgenommen werden.`,
+        `Dieses Fahrzeug stammt als Altbestand aus der Quelle ` +
+          `„${existing.externalSource}“ und ist schreibgeschützt. Bitte legen ` +
+          `Sie stattdessen ein neues Fahrzeug an.`,
         { code: "CONFLICT" },
       );
     }

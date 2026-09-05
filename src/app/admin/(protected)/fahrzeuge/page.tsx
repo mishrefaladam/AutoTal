@@ -1,49 +1,75 @@
 import type { Metadata } from "next";
 import Image from "next/image";
 import Link from "next/link";
-import { Car, ExternalLink, ImageOff, Plus } from "lucide-react";
+import { Car, ImageOff, Plus } from "lucide-react";
 
 import { AdminCard, AdminPageHeader } from "@/components/admin/admin-page-header";
+import {
+  VehicleOverview,
+  VehicleStatusTabs,
+} from "@/components/admin/vehicle-overview";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { MANUAL_SOURCE } from "@/modules/vehicles/constants";
 import { formatEuro, formatKilometers } from "@/lib/money";
 import { cn } from "@/lib/utils";
-import { listVehiclesForAdmin } from "@/modules/vehicles/admin-repository";
+import { countOpenPurchaseInquiries } from "@/modules/purchase-inquiries/repository";
+import {
+  countVehiclesByStatus,
+  listVehiclesForAdmin,
+} from "@/modules/vehicles/admin-repository";
 import {
   VEHICLE_STATUS_LABELS,
   formatDateTime,
 } from "@/modules/vehicles/labels";
+import type { VehicleStatus } from "@/generated/prisma/enums";
 
 export const metadata: Metadata = { title: "Fahrzeuge" };
 
 /**
- * Fahrzeugübersicht im Admin.
+ * Fahrzeuge von AutoTal (eigener Bestand).
  *
- * Zeigt auch Fahrzeuge aus externen Quellen an – die sind aber nicht
- * bearbeitbar, weil der nächste Sync jede Änderung überschreiben würde.
+ * Hier stehen ausschließlich Fahrzeuge, die AutoTal selbst führt. Fahrzeuge,
+ * die Kundinnen und Kunden AutoTal anbieten, liegen unter /admin/ankauf und
+ * werden bewusst nicht vermischt – das sind ungeprüfte Fremdangaben.
+ *
+ * Diese Datensätze speisen NICHT die öffentliche Fahrzeugbörse; die kommt aus
+ * dem eingebetteten willhaben-Widget. Sie sind Datenbasis für Social Media
+ * und die interne Bestandsführung.
  */
-export default async function AdminVehiclesPage() {
-  const vehicles = await listVehiclesForAdmin();
 
-  const inStock = vehicles.filter(
-    (vehicle) => vehicle.status === "IN_STOCK",
-  ).length;
-  const sold = vehicles.filter((vehicle) => vehicle.status === "SOLD").length;
-  const external = vehicles.filter(
-    (vehicle) => vehicle.externalSource !== MANUAL_SOURCE,
-  ).length;
+/** Erlaubte Werte des ?status=-Filters, klein geschrieben wie in der URL. */
+const STATUS_BY_PARAM: Record<string, VehicleStatus> = {
+  in_stock: "IN_STOCK",
+  reserved: "RESERVED",
+  sold: "SOLD",
+};
+
+export default async function AdminVehiclesPage({
+  searchParams,
+}: PageProps<"/admin/fahrzeuge">) {
+  const params = await searchParams;
+  const rawStatus = Array.isArray(params.status)
+    ? params.status[0]
+    : params.status;
+
+  // Unbekannte Werte fallen still auf "alle" zurück, statt eine leere Liste
+  // ohne Erklärung zu zeigen.
+  const activeStatus = rawStatus
+    ? (STATUS_BY_PARAM[rawStatus.toLowerCase()] ?? null)
+    : null;
+
+  const [vehicles, counts, openInquiries] = await Promise.all([
+    listVehiclesForAdmin(activeStatus ?? undefined),
+    countVehiclesByStatus(),
+    countOpenPurchaseInquiries(),
+  ]);
 
   return (
     <>
       <AdminPageHeader
         title="Fahrzeuge"
-        description={
-          `${inStock} im Bestand, ${sold} verkauft, ${vehicles.length} insgesamt.` +
-          (external > 0
-            ? ` ${external} stammen aus einer externen Quelle und werden dort gepflegt.`
-            : "")
-        }
+        description="Der eigene Bestand von AutoTal. Fahrzeuge, die Kundinnen und Kunden anbieten, stehen unter Ankaufanfragen."
         action={
           <Button asChild variant="brand" size="xl">
             <Link href="/admin/fahrzeuge/neu">
@@ -54,16 +80,27 @@ export default async function AdminVehiclesPage() {
         }
       />
 
+      <VehicleOverview counts={counts} openInquiries={openInquiries} />
+
+      {counts.total > 0 && (
+        <VehicleStatusTabs counts={counts} activeStatus={activeStatus} />
+      )}
+
       {vehicles.length === 0 ? (
         <AdminCard>
           <div className="py-12 text-center">
             <Car className="text-muted-foreground mx-auto size-9" aria-hidden="true" />
             <h2 className="font-display mt-4 text-lg font-bold">
-              Noch keine Fahrzeuge
+              {counts.total === 0
+                ? "Noch keine Fahrzeuge"
+                : `Kein Fahrzeug mit Status „${
+                    activeStatus ? VEHICLE_STATUS_LABELS[activeStatus] : ""
+                  }“`}
             </h2>
             <p className="text-muted-foreground mx-auto mt-2 max-w-md text-sm leading-relaxed">
-              Legen Sie das erste Fahrzeug an. Sie können danach Bilder
-              hochladen und es jederzeit wieder offline nehmen.
+              {counts.total === 0
+                ? "Legen Sie das erste Fahrzeug an. Sie können danach Bilder hochladen und den Status jederzeit ändern."
+                : "Wählen Sie oben einen anderen Status oder legen Sie ein Fahrzeug an."}
             </p>
             <Button asChild variant="brand" size="xl" className="mt-6">
               <Link href="/admin/fahrzeuge/neu">
@@ -123,9 +160,13 @@ export default async function AdminVehiclesPage() {
                         <Badge variant="secondary">offline</Badge>
                       )}
 
+                      {/* Altbestand aus einer früheren Datenquelle. Es gibt
+                          keine Synchronisierung mehr, die solche Datensätze
+                          nachführt – deshalb "Altbestand" statt eines
+                          Quellennamens, der Automatik suggeriert. */}
                       {!editable && (
-                        <Badge variant="secondary" className="font-mono text-xs">
-                          {vehicle.externalSource}
+                        <Badge variant="secondary" title={`Quelle: ${vehicle.externalSource}`}>
+                          Altbestand
                         </Badge>
                       )}
 
@@ -149,19 +190,6 @@ export default async function AdminVehiclesPage() {
                   </div>
 
                   <div className="flex shrink-0 gap-2">
-                    {vehicle.active && (
-                      <Button asChild variant="ghost" size="xl">
-                        <a
-                          href={`/fahrzeuge/${vehicle.slug}`}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                        >
-                          <ExternalLink data-icon="inline-start" aria-hidden="true" />
-                          Ansehen
-                        </a>
-                      </Button>
-                    )}
-
                     {editable ? (
                       <Button asChild variant="outline" size="xl">
                         <Link href={`/admin/fahrzeuge/${vehicle.id}`}>
@@ -170,7 +198,7 @@ export default async function AdminVehiclesPage() {
                       </Button>
                     ) : (
                       <Button variant="outline" size="xl" disabled>
-                        Extern gepflegt
+                        Nicht bearbeitbar
                       </Button>
                     )}
                   </div>

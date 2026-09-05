@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { ArrowLeft, ExternalLink } from "lucide-react";
+import { ArrowLeft } from "lucide-react";
 
 import { AdminCard, AdminPageHeader } from "@/components/admin/admin-page-header";
 import { VehicleForm } from "@/components/admin/vehicle-form";
@@ -90,22 +90,8 @@ export default async function EditVehiclePage({
         title={title}
         description={
           editable
-            ? "Änderungen wirken sich sofort auf die öffentliche Website aus."
-            : `Dieses Fahrzeug stammt aus der Quelle „${vehicle.externalSource}“ und wird bei der nächsten Synchronisierung überschrieben.`
-        }
-        action={
-          vehicle.active ? (
-            <Button asChild variant="outline" size="xl">
-              <a
-                href={`/fahrzeuge/${vehicle.slug}`}
-                target="_blank"
-                rel="noopener noreferrer"
-              >
-                <ExternalLink data-icon="inline-start" aria-hidden="true" />
-                Auf der Website ansehen
-              </a>
-            </Button>
-          ) : undefined
+            ? "Datenbasis für Social Media und die interne Bestandsführung. Der öffentliche Bestand kommt aus der eingebetteten willhaben-Börse."
+            : `Altbestand aus der früheren Quelle „${vehicle.externalSource}“. Diese Datensätze werden nicht mehr nachgeführt und sind deshalb schreibgeschützt.`
         }
       />
 

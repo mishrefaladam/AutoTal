@@ -3,6 +3,7 @@ import type { Metadata } from "next";
 import { AdminShell } from "@/components/admin/admin-shell";
 import { requireAdmin } from "@/modules/admin/auth";
 import { getCompany } from "@/modules/company/repository";
+import { countOpenPurchaseInquiries } from "@/modules/purchase-inquiries/repository";
 
 /**
  * Layout aller geschützten Adminseiten (US-14).
@@ -23,10 +24,21 @@ export const dynamic = "force-dynamic";
 export default async function AdminLayout({
   children,
 }: LayoutProps<"/admin">) {
-  const [session, company] = await Promise.all([requireAdmin(), getCompany()]);
+  // requireAdmin() zuerst und allein: Erst wenn die Anmeldung steht, wird
+  // überhaupt etwas aus der Datenbank gelesen.
+  const session = await requireAdmin();
+
+  const [company, openInquiries] = await Promise.all([
+    getCompany(),
+    countOpenPurchaseInquiries(),
+  ]);
 
   return (
-    <AdminShell session={session} companyName={company.displayName}>
+    <AdminShell
+      session={session}
+      companyName={company.displayName}
+      openInquiries={openInquiries}
+    >
       {children}
     </AdminShell>
   );

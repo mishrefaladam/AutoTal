@@ -71,10 +71,13 @@ const ADMIN_NAV = [
 export function AdminShell({
   session,
   companyName,
+  openInquiries = 0,
   children,
 }: {
   session: AdminSession;
   companyName: string;
+  /** Offene Ankaufanfragen – erscheinen als Zähler an der Navigation. */
+  openInquiries?: number;
   children: React.ReactNode;
 }) {
   const pathname = usePathname();
@@ -102,6 +105,17 @@ export function AdminShell({
               >
                 <item.icon className="size-4 shrink-0" aria-hidden="true" />
                 {item.label}
+
+                {/* Nur bei den Ankaufanfragen und nur, wenn wirklich etwas
+                    offen ist – eine dauerhafte "0" wäre reines Rauschen. */}
+                {item.href === "/admin/ankauf" && openInquiries > 0 && (
+                  <span
+                    className="bg-brand text-brand-foreground tabular ml-auto rounded-full px-1.5 py-0.5 text-xs font-semibold"
+                    aria-label={`${openInquiries} offen`}
+                  >
+                    {openInquiries}
+                  </span>
+                )}
               </Link>
             </li>
           );

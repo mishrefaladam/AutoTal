@@ -20,8 +20,44 @@ export type AdminVehicleListItem = {
   updatedAt: Date;
 };
 
-export async function listVehiclesForAdmin(): Promise<AdminVehicleListItem[]> {
+/** Anzahl Fahrzeuge je Status – für die Übersichtskarten und Tabs. */
+export type VehicleStatusCounts = Record<VehicleStatus, number> & {
+  total: number;
+};
+
+/**
+ * Zählt je Status in einer einzigen Abfrage.
+ *
+ * Bewusst `groupBy` statt die Liste zu laden und im Speicher zu filtern: Die
+ * Zahlen stehen über den Tabs, dürfen also nicht davon abhängen, welcher Tab
+ * gerade aktiv ist – und mit wachsendem Bestand bleibt es eine Abfrage.
+ */
+export async function countVehiclesByStatus(): Promise<VehicleStatusCounts> {
+  const rows = await prisma.vehicle.groupBy({
+    by: ["status"],
+    _count: { _all: true },
+  });
+
+  const counts: VehicleStatusCounts = {
+    IN_STOCK: 0,
+    RESERVED: 0,
+    SOLD: 0,
+    total: 0,
+  };
+
+  for (const row of rows) {
+    counts[row.status] = row._count._all;
+    counts.total += row._count._all;
+  }
+
+  return counts;
+}
+
+export async function listVehiclesForAdmin(
+  status?: VehicleStatus,
+): Promise<AdminVehicleListItem[]> {
   const rows = await prisma.vehicle.findMany({
+    where: status ? { status } : undefined,
     orderBy: [{ active: "desc" }, { updatedAt: "desc" }],
     select: {
       id: true,
