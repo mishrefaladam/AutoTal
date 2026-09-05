@@ -15,11 +15,15 @@ import {
   Wrench,
 } from "lucide-react";
 
+import { Marquee } from "@/components/motion/marquee";
+import { Parallax } from "@/components/motion/parallax";
+import { Reveal } from "@/components/motion/reveal";
 import { Section, SectionHeader } from "@/components/site/section";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { buildWhatsAppUrl, generalWhatsAppMessage } from "@/lib/whatsapp";
 import {
+  OPENING_HOURS_UNKNOWN_LABEL,
   getOpeningStatus,
   groupOpeningHours,
 } from "@/modules/company/opening-hours";
@@ -60,14 +64,18 @@ export default async function HomePage() {
       {/* Hero                                                              */}
       {/* ---------------------------------------------------------------- */}
       <section className="bg-ink text-ink-foreground relative isolate overflow-hidden">
-        <Image
-          src={HERO_IMAGE}
-          alt=""
-          fill
-          priority
-          sizes="100vw"
-          className="object-cover object-center opacity-30"
-        />
+        {/* Der Rahmen ragt oben und unten über den Abschnitt hinaus, damit
+            beim Parallax-Versatz keine Kante frei wird. */}
+        <Parallax className="absolute inset-x-0 -top-16 -bottom-16" strength={40}>
+          <Image
+            src={HERO_IMAGE}
+            alt=""
+            fill
+            priority
+            sizes="100vw"
+            className="hero-photo object-cover object-center opacity-30"
+          />
+        </Parallax>
         {/* Verlauf, damit die Schrift auf jedem Bildausschnitt lesbar bleibt. */}
         <div
           aria-hidden="true"
@@ -77,7 +85,7 @@ export default async function HomePage() {
         <div className="container-page relative py-20 lg:py-32">
           <div className="max-w-2xl">
             {company.openingHours.length > 0 && (
-              <p className="border-ink-border mb-6 inline-flex items-center gap-2 rounded-full border bg-white/5 px-3.5 py-1.5 text-sm backdrop-blur-sm">
+              <p className="rise-in border-ink-border mb-6 inline-flex items-center gap-2 rounded-full border bg-white/5 px-3.5 py-1.5 text-sm backdrop-blur-sm">
                 <span
                   aria-hidden="true"
                   className={cn(
@@ -89,24 +97,42 @@ export default async function HomePage() {
               </p>
             )}
 
+            {/* Die beiden Zeilen kommen nacheinander – die Aussage baut sich
+                so auf, statt fertig dazustehen. */}
             <h1 className="font-display text-4xl leading-[1.05] font-extrabold tracking-tight text-balance sm:text-5xl lg:text-6xl">
-              Ihr nächstes Auto.
-              <span className="text-brand-strong block">Ehrlich geprüft.</span>
+              <span className="rise-in block" style={{ "--rise-delay": "80ms" } as React.CSSProperties}>
+                Ihr nächstes Auto.
+              </span>
+              <span
+                className="rise-in text-brand-strong block"
+                style={{ "--rise-delay": "200ms" } as React.CSSProperties}
+              >
+                Ehrlich geprüft.
+              </span>
             </h1>
 
             {/* Tagline und Fließtext bleiben getrennte Absätze: Die Tagline
                 kommt aus dem Admin und endet nicht zwingend mit einem
                 Satzzeichen – aneinandergehängt entstünde ein Textfehler. */}
-            <p className="text-ink-foreground mt-6 max-w-xl text-lg font-medium text-pretty">
+            <p
+              className="rise-in text-ink-foreground mt-6 max-w-xl text-lg font-medium text-pretty"
+              style={{ "--rise-delay": "320ms" } as React.CSSProperties}
+            >
               {company.tagline ?? "Geprüfte Gebrauchtwagen mit lückenloser Historie."}
             </p>
 
-            <p className="text-ink-muted mt-3 max-w-xl text-lg leading-relaxed text-pretty">
+            <p
+              className="rise-in text-ink-muted mt-3 max-w-xl text-lg leading-relaxed text-pretty"
+              style={{ "--rise-delay": "400ms" } as React.CSSProperties}
+            >
               Jedes Fahrzeug wird vor der Übergabe technisch durchgesehen – und
               wir sagen Ihnen auch, was nicht im Prospekt steht.
             </p>
 
-            <div className="mt-9 flex flex-col gap-3 sm:flex-row sm:flex-wrap">
+            <div
+              className="rise-in mt-9 flex flex-col gap-3 sm:flex-row sm:flex-wrap"
+              style={{ "--rise-delay": "500ms" } as React.CSSProperties}
+            >
               <Button asChild variant="brand" size="2xl">
                 <Link href="/fahrzeuge">
                   Fahrzeuge ansehen
@@ -127,7 +153,9 @@ export default async function HomePage() {
                 Bewusst keine Bestandszahl mehr: Der Fahrzeugbestand liegt
                 bei willhaben, die Website kennt ihn nicht. Eine Zahl aus der
                 eigenen Datenbank wäre schlicht falsch. */}
-            <dl className="border-ink-border mt-12 grid max-w-lg grid-cols-2 gap-x-8 gap-y-6 border-t pt-8 sm:grid-cols-3">
+            <dl
+              style={{ "--rise-delay": "600ms" } as React.CSSProperties}
+              className="rise-in border-ink-border mt-12 grid max-w-lg grid-cols-2 gap-x-8 gap-y-6 border-t pt-8 sm:grid-cols-3">
               <div>
                 <dt className="text-ink-muted text-sm">Fahrzeuge</dt>
                 <dd className="font-display mt-1 text-2xl font-bold">geprüft</dd>
@@ -175,8 +203,12 @@ export default async function HomePage() {
               title: "Service danach",
               text: "Wir bleiben auch nach dem Kauf Ihre Anlaufstelle.",
             },
-          ].map((item) => (
-            <div key={item.title} className="flex gap-3.5 px-1 py-6">
+          ].map((item, index) => (
+            <Reveal
+              key={item.title}
+              delay={index * 90}
+              className="flex gap-3.5 px-1 py-6"
+            >
               <item.icon
                 className="text-brand-strong mt-0.5 size-5 shrink-0"
                 aria-hidden="true"
@@ -187,7 +219,7 @@ export default async function HomePage() {
                   {item.text}
                 </p>
               </div>
-            </div>
+            </Reveal>
           ))}
         </div>
       </section>
@@ -196,7 +228,7 @@ export default async function HomePage() {
       {/* Fahrzeugbestand                                                   */}
       {/* ---------------------------------------------------------------- */}
       <Section aria-labelledby="fahrzeugbestand">
-        <div className="border-border bg-card rounded-2xl border p-8 text-center lg:p-14">
+        <Reveal className="border-border bg-card rounded-2xl border p-8 text-center lg:p-14">
           <p className="eyebrow mb-3">Fahrzeugbestand</p>
           <h2
             id="fahrzeugbestand"
@@ -216,8 +248,13 @@ export default async function HomePage() {
               <ArrowRight data-icon="inline-end" aria-hidden="true" />
             </Link>
           </Button>
-        </div>
+        </Reveal>
       </Section>
+
+      {/* ---------------------------------------------------------------- */}
+      {/* Laufband – ruhiger Übergang zwischen zwei hellen Abschnitten      */}
+      {/* ---------------------------------------------------------------- */}
+      <Marquee companyName={company.displayName} />
 
       {/* ---------------------------------------------------------------- */}
       {/* Leistungen                                                        */}
@@ -253,9 +290,9 @@ export default async function HomePage() {
               href: "/auto-verkaufen",
               cta: "Fahrzeug anbieten",
             },
-          ].map((service) => (
-            <li key={service.href}>
-              <article className="group border-border bg-card relative flex h-full flex-col rounded-xl border p-7 transition-shadow hover:shadow-[var(--shadow-card)]">
+          ].map((service, index) => (
+            <Reveal as="li" key={service.href} delay={index * 110}>
+              <article className="group border-border bg-card relative flex h-full flex-col rounded-xl border p-7 transition-[transform,box-shadow] duration-300 ease-[var(--ease-out-soft)] hover:-translate-y-1 hover:shadow-[var(--shadow-card-hover)] motion-reduce:transition-none motion-reduce:hover:translate-y-0">
                 <span className="bg-brand-subtle text-brand-strong flex size-11 items-center justify-center rounded-lg">
                   <service.icon className="size-5" aria-hidden="true" />
                 </span>
@@ -281,9 +318,41 @@ export default async function HomePage() {
                   />
                 </p>
               </article>
-            </li>
+            </Reveal>
           ))}
         </ul>
+      </Section>
+
+      {/* ---------------------------------------------------------------- */}
+      {/* Haltung – die visuell stärkste Stelle der Seite                    */}
+      {/* ---------------------------------------------------------------- */}
+      {/* Der Satz stammt unverändert von /ueber-uns ("Beratung ohne Druck")
+          und ist der einzige Ort der Startseite, an dem die Typografie so
+          groß wird. Genau deshalb wirkt er. */}
+      <Section tone="ink" aria-labelledby="haltung" className="py-24 lg:py-36">
+        <div className="mx-auto max-w-3xl text-center">
+          <Reveal>
+            <p className="eyebrow mb-7">Unsere Haltung</p>
+          </Reveal>
+
+          <h2
+            id="haltung"
+            className="font-display text-3xl leading-[1.12] font-bold tracking-tight text-balance sm:text-4xl lg:text-5xl"
+          >
+            <Reveal as="span" delay={90} className="block">
+              Wir verkaufen Ihnen lieber nichts,
+            </Reveal>
+            <Reveal as="span" delay={230} className="text-brand-strong block">
+              als das falsche Auto.
+            </Reveal>
+          </h2>
+
+          <Reveal delay={380}>
+            <p className="text-ink-muted mx-auto mt-7 max-w-xl text-lg leading-relaxed text-pretty">
+              Wenn ein Fahrzeug nicht zu Ihnen passt, sagen wir das.
+            </p>
+          </Reveal>
+        </div>
       </Section>
 
       {/* ---------------------------------------------------------------- */}
@@ -291,7 +360,7 @@ export default async function HomePage() {
       {/* ---------------------------------------------------------------- */}
       <Section aria-labelledby="kontakt-start">
         <div className="grid gap-12 lg:grid-cols-2 lg:gap-16">
-          <div>
+          <Reveal>
             <SectionHeader
               headingId="kontakt-start"
               eyebrow="Kontakt"
@@ -372,36 +441,45 @@ export default async function HomePage() {
             <Button asChild variant="brand" size="2xl" className="mt-6 w-full sm:w-auto">
               <Link href="/kontakt">Zum Kontaktformular</Link>
             </Button>
-          </div>
+          </Reveal>
 
           {/* Öffnungszeiten und Anfahrt */}
-          <div className="border-border bg-muted/40 rounded-2xl border p-7 lg:p-8">
+          <Reveal
+            delay={120}
+            className="border-border bg-muted/40 rounded-2xl border p-7 lg:p-8"
+          >
             <h3 className="font-display flex items-center gap-2.5 text-xl font-bold">
               <Clock className="text-brand-strong size-5" aria-hidden="true" />
               Öffnungszeiten
             </h3>
 
-            <dl className="mt-5 space-y-2.5">
-              {openingDays.map((day) => (
-                <div
-                  key={day.weekday}
-                  className="border-border/60 flex justify-between gap-4 border-b pb-2.5 last:border-0"
-                >
-                  <dt className="text-muted-foreground text-sm">{day.label}</dt>
-                  <dd className="tabular text-right text-sm">
-                    {day.closed ? (
-                      <span className="text-muted-foreground">geschlossen</span>
-                    ) : (
-                      day.ranges.map((range) => (
-                        <span key={range} className="block whitespace-nowrap">
-                          {range}
-                        </span>
-                      ))
-                    )}
-                  </dd>
-                </div>
-              ))}
-            </dl>
+            {openingDays.length > 0 ? (
+              <dl className="mt-5 space-y-2.5">
+                {openingDays.map((day) => (
+                  <div
+                    key={day.weekday}
+                    className="border-border/60 flex justify-between gap-4 border-b pb-2.5 last:border-0"
+                  >
+                    <dt className="text-muted-foreground text-sm">{day.label}</dt>
+                    <dd className="tabular text-right text-sm">
+                      {day.closed ? (
+                        <span className="text-muted-foreground">geschlossen</span>
+                      ) : (
+                        day.ranges.map((range) => (
+                          <span key={range} className="block whitespace-nowrap">
+                            {range}
+                          </span>
+                        ))
+                      )}
+                    </dd>
+                  </div>
+                ))}
+              </dl>
+            ) : (
+              <p className="text-muted-foreground mt-5 text-sm">
+                {OPENING_HOURS_UNKNOWN_LABEL}
+              </p>
+            )}
 
             {company.addressLine && (
               <>
@@ -432,7 +510,7 @@ export default async function HomePage() {
                 </Button>
               </>
             )}
-          </div>
+          </Reveal>
         </div>
       </Section>
     </>

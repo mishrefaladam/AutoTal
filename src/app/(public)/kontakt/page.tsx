@@ -7,6 +7,7 @@ import { SocialIcon, socialLabel } from "@/components/site/social-icon";
 import { Button } from "@/components/ui/button";
 import { buildWhatsAppUrl, generalWhatsAppMessage } from "@/lib/whatsapp";
 import {
+  OPENING_HOURS_UNKNOWN_LABEL,
   getOpeningStatus,
   groupOpeningHours,
 } from "@/modules/company/opening-hours";
@@ -187,27 +188,33 @@ export default async function ContactPage() {
               </p>
             )}
 
-            <dl className="mt-4 space-y-2.5">
-              {openingDays.map((day) => (
-                <div
-                  key={day.weekday}
-                  className="border-border/60 flex justify-between gap-4 border-b pb-2.5 text-sm last:border-0 last:pb-0"
-                >
-                  <dt className="text-muted-foreground">{day.label}</dt>
-                  <dd className="tabular text-right">
-                    {day.closed ? (
-                      <span className="text-muted-foreground">geschlossen</span>
-                    ) : (
-                      day.ranges.map((range) => (
-                        <span key={range} className="block whitespace-nowrap">
-                          {range}
-                        </span>
-                      ))
-                    )}
-                  </dd>
-                </div>
-              ))}
-            </dl>
+            {openingDays.length > 0 ? (
+              <dl className="mt-4 space-y-2.5">
+                {openingDays.map((day) => (
+                  <div
+                    key={day.weekday}
+                    className="border-border/60 flex justify-between gap-4 border-b pb-2.5 text-sm last:border-0 last:pb-0"
+                  >
+                    <dt className="text-muted-foreground">{day.label}</dt>
+                    <dd className="tabular text-right">
+                      {day.closed ? (
+                        <span className="text-muted-foreground">geschlossen</span>
+                      ) : (
+                        day.ranges.map((range) => (
+                          <span key={range} className="block whitespace-nowrap">
+                            {range}
+                          </span>
+                        ))
+                      )}
+                    </dd>
+                  </div>
+                ))}
+              </dl>
+            ) : (
+              <p className="text-muted-foreground mt-4 text-sm">
+                {OPENING_HOURS_UNKNOWN_LABEL}
+              </p>
+            )}
           </div>
 
           {/* Social */}

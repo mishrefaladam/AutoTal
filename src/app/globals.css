@@ -151,6 +151,11 @@
 
   --radius: 0.625rem;
 
+  /* Eine einzige Ausklingkurve für die gesamte Website: startet zügig,
+     läuft weich aus, schwingt nicht über. Kein Bounce – der wirkt
+     verspielt und passt nicht zu einem Autohaus. */
+  --ease-out-soft: cubic-bezier(0.22, 0.61, 0.36, 1);
+
   --sidebar: oklch(0.985 0.003 95);
   --sidebar-foreground: oklch(0.185 0.014 258);
   --sidebar-primary: oklch(0.225 0.017 258);
@@ -306,5 +311,224 @@
   }
   to {
     background-position: -200% 0;
+  }
+}
+
+
+/* ==========================================================================
+   Bewegung
+   --------------------------------------------------------------------------
+   Grundsatz: Bewegung darf nie Voraussetzung sein, um Inhalte zu lesen oder
+   zu bedienen. Deshalb ist jeder Startzustand entweder sichtbar oder hinter
+   `@media (scripting: enabled)` versteckt, und `prefers-reduced-motion`
+   schaltet alles ab.
+
+   Animiert werden ausschließlich `transform` und `opacity` – beides erzeugt
+   keinen Layout-Shift und läuft im Compositor.
+   ========================================================================== */
+
+@layer components {
+  /* --- Scroll-Reveal ---------------------------------------------------
+     Der Wechsel auf data-reveal="shown" kommt aus <Reveal>. */
+  [data-reveal] {
+    transition:
+      opacity 640ms var(--ease-out-soft),
+      transform 640ms var(--ease-out-soft);
+    transition-delay: var(--reveal-delay, 0ms);
+  }
+
+  /* Der verborgene Startzustand gilt nur, wenn JavaScript ihn auch wieder
+     auflösen kann. Ohne Scripting bleibt der Inhalt schlicht sichtbar. */
+  @media (scripting: enabled) {
+    [data-reveal="hidden"] {
+      opacity: 0;
+      transform: translateY(22px);
+    }
+  }
+
+  /* --- Einblenden beim Laden (Hero) ------------------------------------
+     Kein Beobachter nötig: Der Bereich ist beim Laden ohnehin im Bild. */
+  .rise-in {
+    animation: rise-in 760ms var(--ease-out-soft) both;
+    animation-delay: var(--rise-delay, 0ms);
+  }
+
+  /* Das Hero-Motiv fährt einmal sehr langsam von 1.04 auf 1.00 zurück.
+     Die Bewegung ist kaum bewusst wahrnehmbar und nimmt dem Standbild
+     die Starre. */
+  .hero-photo {
+    animation: hero-photo 2200ms var(--ease-out-soft) both;
+  }
+
+  /* --- Parallax --------------------------------------------------------
+     Den Wert setzt <Parallax>; er bleibt leer, solange der Effekt inaktiv
+     ist (Mobil, reduzierte Bewegung), und dann steht hier eine 0. */
+  .parallax {
+    transform: translate3d(0, var(--parallax-y, 0px), 0);
+    will-change: transform;
+  }
+
+  /* --- Laufband --------------------------------------------------------
+     Zwei identische Hälften; die Spur wandert um genau eine Hälfte und
+     springt zurück. Der Abstand steckt im Innenabstand der Elemente, nicht
+     in `gap` – sonst entstünde an der Nahtstelle eine sichtbare Lücke. */
+  .marquee {
+    overflow: hidden;
+    border-block: 1px solid var(--ink-border);
+  }
+
+  .marquee-track {
+    display: flex;
+    width: max-content;
+    animation: marquee-slide 46s linear infinite;
+  }
+
+  .marquee-half {
+    display: flex;
+    align-items: center;
+  }
+
+  .marquee-item {
+    padding-block: 0.9rem;
+    padding-inline: 1.15rem;
+    font-size: 0.75rem;
+    font-weight: 600;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    white-space: nowrap;
+  }
+
+  .marquee-dot {
+    flex: none;
+    width: 3px;
+    height: 3px;
+    border-radius: 9999px;
+    background: var(--brand);
+  }
+
+  @media (min-width: 640px) {
+    .marquee-item {
+      padding-inline: 1.6rem;
+      font-size: 0.8125rem;
+    }
+  }
+
+  /* --- Buttons ---------------------------------------------------------
+     Ein Pfeil am Ende des Buttons rückt beim Überfahren ein Stück mit.
+     Zentral geregelt, damit jede Schaltfläche dasselbe Verhalten zeigt. */
+  [data-slot="button"] [data-icon="inline-end"] {
+    transition: transform 220ms var(--ease-out-soft);
+  }
+
+  [data-slot="button"]:hover [data-icon="inline-end"] {
+    transform: translateX(3px);
+  }
+}
+
+@keyframes rise-in {
+  from {
+    opacity: 0;
+    transform: translateY(16px);
+  }
+}
+
+@keyframes hero-photo {
+  from {
+    transform: scale(1.04);
+  }
+  to {
+    transform: scale(1);
+  }
+}
+
+@keyframes marquee-slide {
+  /* Start bei -50 %, Ziel 0 % – die Spur läuft dadurch nach rechts, nicht
+     nach links. Beide Hälften sind identisch, deshalb bleibt der Übergang
+     beim Zurückspringen unsichtbar. */
+  from {
+    transform: translateX(-50%);
+  }
+  to {
+    transform: translateX(0%);
+  }
+}
+
+/* Wer reduzierte Bewegung eingestellt hat, bekommt dieselbe Seite – nur
+   ohne Bewegung. Nichts wird ausgeblendet, nichts verschoben. */
+@media (prefers-reduced-motion: reduce) {
+  [data-reveal],
+  [data-reveal="hidden"] {
+    opacity: 1;
+    transform: none;
+    transition: none;
+  }
+
+  .rise-in,
+  .hero-photo,
+  .marquee-track {
+    animation: none;
+  }
+
+  .parallax {
+    transform: none;
+  }
+
+  [data-slot="button"] [data-icon="inline-end"],
+  [data-slot="button"]:hover [data-icon="inline-end"] {
+    transition: none;
+    transform: none;
+  }
+}
+
+/* Lokaler Development-Testmodus: Production respektiert weiterhin
+   prefers-reduced-motion, weil das Attribut nur bei NODE_ENV=development und
+   NEXT_PUBLIC_FORCE_MOTION=true gesetzt wird. */
+@media (prefers-reduced-motion: reduce) {
+  html[data-force-motion="true"] {
+    scroll-behavior: smooth;
+  }
+
+  html[data-force-motion="true"] .img-skeleton {
+    animation: img-shimmer 1.4s ease-in-out infinite;
+  }
+
+  html[data-force-motion="true"] [data-reveal] {
+    transition:
+      opacity 640ms var(--ease-out-soft),
+      transform 640ms var(--ease-out-soft);
+    transition-delay: var(--reveal-delay, 0ms);
+  }
+
+  html[data-force-motion="true"] .rise-in {
+    animation: rise-in 760ms var(--ease-out-soft) both;
+    animation-delay: var(--rise-delay, 0ms);
+  }
+
+  html[data-force-motion="true"] .hero-photo {
+    animation: hero-photo 2200ms var(--ease-out-soft) both;
+  }
+
+  html[data-force-motion="true"] .marquee-track {
+    animation: marquee-slide 46s linear infinite;
+  }
+
+  html[data-force-motion="true"] .parallax {
+    transform: translate3d(0, var(--parallax-y, 0px), 0);
+  }
+
+  html[data-force-motion="true"] [data-slot="button"] [data-icon="inline-end"] {
+    transition: transform 220ms var(--ease-out-soft);
+    transform: none;
+  }
+
+  html[data-force-motion="true"] [data-slot="button"]:hover [data-icon="inline-end"] {
+    transform: translateX(3px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) and (scripting: enabled) {
+  html[data-force-motion="true"] [data-reveal="hidden"] {
+    opacity: 0;
+    transform: translateY(22px);
   }
 }

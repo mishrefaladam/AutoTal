@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import { Archivo, Geist, Geist_Mono } from "next/font/google";
 
+import { forceMotionInDevelopment } from "@/components/motion/preferences";
 import { Toaster } from "@/components/ui/sonner";
 import { siteUrl } from "@/lib/env";
 import { getCompany } from "@/modules/company/repository";
@@ -86,6 +87,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
     <html
       lang="de-AT"
+      data-force-motion={forceMotionInDevelopment ? "true" : undefined}
       className={`${geistSans.variable} ${geistMono.variable} ${archivo.variable} h-full antialiased`}
     >
       <body className="flex min-h-full flex-col">

@@ -1,11 +1,20 @@
 import Link from "next/link";
-import { Clock, Mail, MapPin, Phone } from "lucide-react";
+import { Clock, Mail, MapPin, MessageCircle, Phone } from "lucide-react";
 
 import { Logo } from "@/components/site/logo";
 import { SocialIcon, socialLabel } from "@/components/site/social-icon";
 import { LEGAL_NAV, MAIN_NAV } from "@/lib/navigation";
-import { groupOpeningHours } from "@/modules/company/opening-hours";
+import { cn } from "@/lib/utils";
+import { buildWhatsAppUrl, generalWhatsAppMessage } from "@/lib/whatsapp";
+import {
+  OPENING_HOURS_UNKNOWN_LABEL,
+  groupOpeningHours,
+} from "@/modules/company/opening-hours";
 import type { CompanyDto } from "@/modules/company/types";
+
+/** Überschrift einer Fußzeilen-Spalte – bewusst wie ein Label, nicht wie ein Link. */
+const COLUMN_HEADING =
+  "text-brand-strong text-xs font-semibold tracking-[0.14em] uppercase";
 
 /**
  * Fußzeile mit Kontaktdaten, Öffnungszeiten und Rechtsverweisen.
@@ -14,6 +23,11 @@ import type { CompanyDto } from "@/modules/company/types";
 export function SiteFooter({ company }: { company: CompanyDto }) {
   const openingDays = groupOpeningHours(company.openingHours);
   const year = new Date().getFullYear();
+
+  const whatsappHref = buildWhatsAppUrl(
+    company.whatsappNumber,
+    generalWhatsAppMessage(company.displayName),
+  );
 
   return (
     <footer className="bg-ink text-ink-foreground mt-auto">
@@ -50,18 +64,21 @@ export function SiteFooter({ company }: { company: CompanyDto }) {
 
           {/* Navigation */}
           <nav aria-labelledby="footer-nav-heading">
-            <h2
-              id="footer-nav-heading"
-              className="text-ink-foreground text-sm font-semibold"
-            >
+            {/* Bewusst wie ein Label gesetzt (klein, Farbakzent, Versalien) –
+                nicht wie ein Link, damit niemand versucht, die Überschrift
+                selbst anzuklicken. */}
+            <h2 id="footer-nav-heading" className={COLUMN_HEADING}>
               Navigation
             </h2>
-            <ul className="mt-4 space-y-2.5">
+            <ul className="mt-4 -mx-2 space-y-0.5">
               {MAIN_NAV.map((item) => (
                 <li key={item.href}>
+                  {/* Eigene Zeile mit Innenabstand statt reinem Text: Auf dem
+                      Smartphone braucht ein Link eine Trefferfläche, keine
+                      einzelne Textzeile. */}
                   <Link
                     href={item.href}
-                    className="text-ink-muted hover:text-ink-foreground rounded text-sm transition-colors focus-visible:ring-3 focus-visible:ring-white/30 focus-visible:outline-none"
+                    className="text-ink-muted hover:text-ink-foreground block rounded-md px-2 py-3 text-sm transition-colors focus-visible:ring-3 focus-visible:ring-white/30 focus-visible:outline-none"
                   >
                     {item.label}
                   </Link>
@@ -72,10 +89,7 @@ export function SiteFooter({ company }: { company: CompanyDto }) {
 
           {/* Kontakt */}
           <section aria-labelledby="footer-contact-heading">
-            <h2
-              id="footer-contact-heading"
-              className="text-ink-foreground text-sm font-semibold"
-            >
+            <h2 id="footer-contact-heading" className={COLUMN_HEADING}>
               Kontakt
             </h2>
 
@@ -120,6 +134,23 @@ export function SiteFooter({ company }: { company: CompanyDto }) {
                   </a>
                 </p>
               )}
+
+              {whatsappHref && (
+                <p className="flex gap-2.5">
+                  <MessageCircle
+                    className="text-ink-muted mt-0.5 size-4 shrink-0"
+                    aria-hidden="true"
+                  />
+                  <a
+                    href={whatsappHref}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-ink-muted hover:text-ink-foreground rounded transition-colors focus-visible:ring-3 focus-visible:ring-white/30 focus-visible:outline-none"
+                  >
+                    WhatsApp
+                  </a>
+                </p>
+              )}
             </address>
           </section>
 
@@ -127,30 +158,36 @@ export function SiteFooter({ company }: { company: CompanyDto }) {
           <section aria-labelledby="footer-hours-heading">
             <h2
               id="footer-hours-heading"
-              className="text-ink-foreground flex items-center gap-2 text-sm font-semibold"
+              className={cn(COLUMN_HEADING, "flex items-center gap-2")}
             >
-              <Clock className="size-4" aria-hidden="true" />
+              <Clock className="size-3.5" aria-hidden="true" />
               Öffnungszeiten
             </h2>
 
-            <dl className="mt-4 space-y-1.5 text-sm">
-              {openingDays.map((day) => (
-                <div key={day.weekday} className="flex justify-between gap-4">
-                  <dt className="text-ink-muted">{day.label}</dt>
-                  <dd className="text-ink-foreground tabular text-right">
-                    {day.closed ? (
-                      <span className="text-ink-muted">geschlossen</span>
-                    ) : (
-                      day.ranges.map((range) => (
-                        <span key={range} className="block whitespace-nowrap">
-                          {range}
-                        </span>
-                      ))
-                    )}
-                  </dd>
-                </div>
-              ))}
-            </dl>
+            {openingDays.length > 0 ? (
+              <dl className="mt-4 space-y-1.5 text-sm">
+                {openingDays.map((day) => (
+                  <div key={day.weekday} className="flex justify-between gap-4">
+                    <dt className="text-ink-muted">{day.label}</dt>
+                    <dd className="text-ink-foreground tabular text-right">
+                      {day.closed ? (
+                        <span className="text-ink-muted">geschlossen</span>
+                      ) : (
+                        day.ranges.map((range) => (
+                          <span key={range} className="block whitespace-nowrap">
+                            {range}
+                          </span>
+                        ))
+                      )}
+                    </dd>
+                  </div>
+                ))}
+              </dl>
+            ) : (
+              <p className="text-ink-muted mt-4 text-sm">
+                {OPENING_HOURS_UNKNOWN_LABEL}
+              </p>
+            )}
           </section>
         </div>
 
@@ -161,12 +198,12 @@ export function SiteFooter({ company }: { company: CompanyDto }) {
             © {year} {company.legalName || company.displayName}
           </p>
 
-          <ul className="flex flex-wrap gap-x-6 gap-y-2">
+          <ul className="-mx-2 flex flex-wrap gap-x-2 gap-y-1">
             {LEGAL_NAV.map((item) => (
               <li key={item.href}>
                 <Link
                   href={item.href}
-                  className="text-ink-muted hover:text-ink-foreground rounded transition-colors focus-visible:ring-3 focus-visible:ring-white/30 focus-visible:outline-none"
+                  className="text-ink-muted hover:text-ink-foreground block rounded-md px-2 py-3 transition-colors focus-visible:ring-3 focus-visible:ring-white/30 focus-visible:outline-none"
                 >
                   {item.label}
                 </Link>

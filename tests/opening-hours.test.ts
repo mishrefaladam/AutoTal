@@ -66,6 +66,13 @@ describe("groupOpeningHours", () => {
     assert.equal(sunday.closed, true);
     assert.deepEqual(sunday.ranges, []);
   });
+
+  it("erfindet ohne gepflegte Öffnungszeiten keine sieben 'geschlossen'-Tage", () => {
+    // Vor dem Seed bzw. ohne gepflegte Daten kommt company.openingHours als
+    // leeres Array zurück. Sieben fabrizierte "geschlossen"-Zeilen würden
+    // fälschlich behaupten, der Betrieb sei ganzwöchig zu.
+    assert.deepEqual(groupOpeningHours([]), []);
+  });
 });
 
 describe("getOpeningStatus", () => {

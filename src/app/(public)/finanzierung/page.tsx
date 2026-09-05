@@ -88,12 +88,12 @@ export default async function FinancingPage() {
 
           {/* Ablauf */}
           <aside className="lg:pt-14">
-            <div className="border-border bg-muted/40 rounded-xl border p-6">
+            <div className="border-border bg-card rounded-xl border p-6 shadow-[var(--shadow-card)]">
               <h2 className="font-display text-lg font-bold">
                 So läuft die Finanzierung ab
               </h2>
 
-              <ol className="mt-5 space-y-5">
+              <ol className="mt-5 space-y-4">
                 {[
                   {
                     title: "Rate durchrechnen",
@@ -112,10 +112,10 @@ export default async function FinancingPage() {
                     text: "Nach positiver Prüfung meist innerhalb eines Werktags.",
                   },
                 ].map((step, index) => (
-                  <li key={step.title} className="flex gap-4">
+                  <li key={step.title} className="flex gap-3.5">
                     <span
                       aria-hidden="true"
-                      className="bg-brand text-brand-foreground tabular flex size-7 shrink-0 items-center justify-center rounded-full text-sm font-bold"
+                      className="bg-brand text-brand-foreground tabular flex size-6 shrink-0 items-center justify-center rounded-full text-xs font-bold"
                     >
                       {index + 1}
                     </span>
@@ -129,7 +129,9 @@ export default async function FinancingPage() {
                 ))}
               </ol>
 
-              <Button asChild variant="brand" size="xl" className="mt-7 w-full">
+              {/* Stärkster Abschluss der Seite – bewusst größer als der
+                  übrige Text der Karte. */}
+              <Button asChild variant="brand" size="2xl" className="mt-8 w-full">
                 <Link href="/kontakt">Beratung anfragen</Link>
               </Button>
             </div>

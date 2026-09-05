@@ -16,6 +16,9 @@ import type { OpeningDay, OpeningHourSlot, OpeningStatus } from "./types";
 
 const SHOP_TIME_ZONE = "Europe/Vienna";
 
+/** Anzeigetext, solange im Admin keine Öffnungszeiten gepflegt sind. */
+export const OPENING_HOURS_UNKNOWN_LABEL = "Öffnungszeiten folgen";
+
 /** "08:00" -> 480 (Minuten seit Mitternacht) */
 function toMinutes(time: string): number | null {
   const match = /^(\d{1,2}):(\d{2})$/.exec(time.trim());
@@ -33,8 +36,17 @@ function formatRange(slot: OpeningHourSlot): string | null {
   return `${slot.opensAt} – ${slot.closesAt} Uhr`;
 }
 
-/** Gruppiert die Slots zu sieben Wochentagen, Montag zuerst. */
+/**
+ * Gruppiert die Slots zu sieben Wochentagen, Montag zuerst.
+ *
+ * Ohne einen einzigen Slot ist im Admin schlicht noch nichts gepflegt –
+ * dann liefert die Funktion eine leere Liste statt sieben erfundener
+ * "geschlossen"-Tage. Die Aufrufer zeigen in diesem Fall
+ * OPENING_HOURS_UNKNOWN_LABEL statt einer Tabelle.
+ */
 export function groupOpeningHours(slots: OpeningHourSlot[]): OpeningDay[] {
+  if (slots.length === 0) return [];
+
   return Array.from({ length: 7 }, (_, index) => {
     const weekday = index + 1;
     const daySlots = slots
