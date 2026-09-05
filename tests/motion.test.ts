@@ -19,13 +19,15 @@ const button = readFileSync("src/components/ui/button.tsx", "utf8");
 const whatsappFab = readFileSync("src/components/site/whatsapp-fab.tsx", "utf8");
 
 describe("Normale Website-Bewegung bleibt sichtbar", () => {
-  it("deaktiviert Scroll-Reveal, Hero-Intro und Marquee nicht global", () => {
+  it("deaktiviert Scroll-Reveal und Hero-Intro nicht global", () => {
+    // Einmalige Einblendungen bleiben auch bei reduzierter Bewegung erhalten;
+    // das Laufband ist die Ausnahme (siehe "Dauerhafte Bewegung wird gestoppt").
     const reducedMotionBlocks = css.matchAll(
       /@media \(prefers-reduced-motion: reduce\) \{[\s\S]*?\n\}/g,
     );
 
     for (const match of reducedMotionBlocks) {
-      for (const selector of ["[data-reveal]", ".rise-in", ".hero-photo", ".marquee-track"]) {
+      for (const selector of ["[data-reveal]", ".rise-in", ".hero-photo"]) {
         assert.ok(
           !match[0].includes(selector),
           `${selector} wird bei reduzierter Bewegung noch global deaktiviert`,
@@ -89,12 +91,26 @@ describe("Inhalte bleiben ohne JavaScript lesbar", () => {
 });
 
 describe("Starke Bewegung bleibt reduziert", () => {
+  /** Alle @media-Blöcke für reduzierte Bewegung, zusammengefasst. */
+  const reducedMotionCss = [
+    ...css.matchAll(/@media \(prefers-reduced-motion: reduce\) \{[\s\S]*?\n\}/g),
+  ]
+    .map((match) => match[0])
+    .join("\n");
+
   it("schaltet Parallax bei prefers-reduced-motion weiter ab", () => {
+    // Sowohl im Beobachter (er misst dann gar nicht erst) …
     assert.match(parallax, /prefers-reduced-motion: reduce/);
     assert.match(parallax, /wide\.matches && !reducedMotion\.matches/);
-    const parallaxRule = css.slice(css.indexOf("scrollgekoppelte Bewegung"));
-    assert.match(parallaxRule, /prefers-reduced-motion: reduce/);
-    assert.match(parallaxRule, /\.parallax[\s\S]*?transform: none/);
+    // … als auch in CSS, falls das Attribut noch gesetzt sein sollte.
+    assert.match(reducedMotionCss, /\.parallax[\s\S]*?transform: none/);
+  });
+
+  it("hält das Laufband an", () => {
+    // Dauerhaft laufende Endlos-Bewegung ist die Sorte, die bei
+    // vestibulären Beschwerden am stärksten stört – anders als die
+    // einmaligen Einblendungen, die bewusst aktiv bleiben.
+    assert.match(reducedMotionCss, /\.marquee-track[\s\S]*?animation: none/);
   });
 });
 

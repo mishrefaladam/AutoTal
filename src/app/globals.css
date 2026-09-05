@@ -448,11 +448,19 @@
   }
 }
 
-/* Normale UI- und Markenbewegung bleibt sichtbar. Reduziert wird nur
-   scrollgekoppelte Bewegung, die stärker auf den Viewport wirkt. */
+/* Normale UI- und Markenbewegung bleibt sichtbar – einmalige Einblendungen
+   und kurze Hover-Wege sind unkritisch.
+
+   Reduziert wird, was dauerhaft oder scrollgekoppelt läuft: Endlos-Bewegung
+   und Parallax sind genau die Sorte, die bei vestibulären Beschwerden stört.
+   Das Laufband bleibt dabei vollständig lesbar, es steht dann still. */
 @media (prefers-reduced-motion: reduce) {
   .parallax {
     transform: none;
     will-change: auto;
+  }
+
+  .marquee-track {
+    animation: none;
   }
 }
