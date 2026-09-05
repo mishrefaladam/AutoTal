@@ -13,51 +13,60 @@ const css = readFileSync("src/app/globals.css", "utf8");
 const reveal = readFileSync("src/components/motion/reveal.tsx", "utf8");
 const marquee = readFileSync("src/components/motion/marquee.tsx", "utf8");
 const parallax = readFileSync("src/components/motion/parallax.tsx", "utf8");
-const preferences = readFileSync("src/components/motion/preferences.ts", "utf8");
-const layout = readFileSync("src/app/layout.tsx", "utf8");
+const page = readFileSync("src/app/(public)/page.tsx", "utf8");
+const aboutPage = readFileSync("src/app/(public)/ueber-uns/page.tsx", "utf8");
+const button = readFileSync("src/components/ui/button.tsx", "utf8");
+const whatsappFab = readFileSync("src/components/site/whatsapp-fab.tsx", "utf8");
 
-describe("Bewegung bleibt abschaltbar", () => {
-  it("schaltet alle Animationen bei prefers-reduced-motion ab", () => {
-    const block = css.slice(
-      css.indexOf("Wer reduzierte Bewegung eingestellt hat"),
-      css.indexOf("Lokaler Development-Testmodus"),
+describe("Normale Website-Bewegung bleibt sichtbar", () => {
+  it("deaktiviert Scroll-Reveal, Hero-Intro und Marquee nicht global", () => {
+    const reducedMotionBlocks = css.matchAll(
+      /@media \(prefers-reduced-motion: reduce\) \{[\s\S]*?\n\}/g,
     );
-    for (const selector of [
-      "[data-reveal]",
-      ".rise-in",
-      ".hero-photo",
-      ".marquee-track",
-      ".parallax",
-    ]) {
-      assert.ok(
-        block.includes(selector),
-        `${selector} wird bei reduzierter Bewegung nicht zurückgesetzt`,
-      );
+
+    for (const match of reducedMotionBlocks) {
+      for (const selector of ["[data-reveal]", ".rise-in", ".hero-photo", ".marquee-track"]) {
+        assert.ok(
+          !match[0].includes(selector),
+          `${selector} wird bei reduzierter Bewegung noch global deaktiviert`,
+        );
+      }
     }
   });
 
-  it("prüft reduzierte Bewegung auch im Beobachter", () => {
-    // Sonst würde der Inhalt zwar sichtbar bleiben, aber der Observer liefe
-    // trotzdem mit und setzte Übergänge in Gang.
-    assert.match(reveal, /prefers-reduced-motion: reduce/);
-    assert.match(parallax, /prefers-reduced-motion: reduce/);
+  it("lässt Scroll-Reveal auch bei prefers-reduced-motion über den Observer laufen", () => {
+    assert.ok(!reveal.includes("prefers-reduced-motion"));
+    assert.match(reveal, /IntersectionObserver" in window/);
   });
 
-  it("erlaubt erzwungene Bewegung nur in Development", () => {
-    assert.match(preferences, /process\.env\.NODE_ENV === "development"/);
-    assert.match(preferences, /process\.env\.NEXT_PUBLIC_FORCE_MOTION === "true"/);
-    assert.match(reveal, /shouldReduceMotion/);
-    assert.match(parallax, /shouldReduceMotion/);
-    assert.match(layout, /data-force-motion=\{forceMotionInDevelopment \? "true" : undefined\}/);
+  it("verwendet keinen Development-Force-Schalter mehr", () => {
+    const source = [
+      css,
+      reveal,
+      parallax,
+      page,
+      aboutPage,
+      button,
+      whatsappFab,
+      readFileSync(".env.example", "utf8"),
+    ].join("\n");
+
+    assert.ok(!source.includes("NEXT_PUBLIC_FORCE_MOTION"));
+    assert.ok(!source.includes("data-force-motion"));
   });
 
-  it("schaltet CSS-Bewegung nur über das Development-Attribut wieder ein", () => {
-    const override = css.slice(css.indexOf("Lokaler Development-Testmodus"));
-    assert.match(override, /prefers-reduced-motion: reduce/);
-    assert.match(override, /NEXT_PUBLIC_FORCE_MOTION=true/);
-    assert.match(override, /marquee-slide 46s linear infinite/);
-    assert.match(override, /hero-photo 2200ms/);
-    assert.match(override, /rise-in 760ms/);
+  it("entfernt motion-reduce-Varianten von normalen Hover-Effekten", () => {
+    for (const [name, source] of Object.entries({
+      page,
+      aboutPage,
+      button,
+      whatsappFab,
+    })) {
+      assert.ok(
+        !source.includes("motion-reduce:"),
+        `${name} enthält noch motion-reduce`,
+      );
+    }
   });
 });
 
@@ -76,6 +85,16 @@ describe("Inhalte bleiben ohne JavaScript lesbar", () => {
 
   it("blendet ohne IntersectionObserver sofort ein", () => {
     assert.match(reveal, /IntersectionObserver" in window/);
+  });
+});
+
+describe("Starke Bewegung bleibt reduziert", () => {
+  it("schaltet Parallax bei prefers-reduced-motion weiter ab", () => {
+    assert.match(parallax, /prefers-reduced-motion: reduce/);
+    assert.match(parallax, /wide\.matches && !reducedMotion\.matches/);
+    const parallaxRule = css.slice(css.indexOf("scrollgekoppelte Bewegung"));
+    assert.match(parallaxRule, /prefers-reduced-motion: reduce/);
+    assert.match(parallaxRule, /\.parallax[\s\S]*?transform: none/);
   });
 });
 

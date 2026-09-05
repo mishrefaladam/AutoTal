@@ -143,7 +143,7 @@ export default async function AboutPage() {
         <ul className="grid gap-6 lg:grid-cols-3">
           {VALUES.map((value) => (
             <li key={value.title}>
-              <article className="border-border bg-card h-full rounded-xl border p-7 transition-[transform,box-shadow] duration-300 ease-[var(--ease-out-soft)] hover:-translate-y-1 hover:shadow-[var(--shadow-card-hover)] motion-reduce:transition-none motion-reduce:hover:translate-y-0">
+              <article className="border-border bg-card h-full rounded-xl border p-7 transition-[transform,box-shadow] duration-300 ease-[var(--ease-out-soft)] hover:-translate-y-1 hover:shadow-[var(--shadow-card-hover)]">
                 <span className="bg-brand-subtle text-brand-strong flex size-11 items-center justify-center rounded-lg">
                   <value.icon className="size-5" aria-hidden="true" />
                 </span>

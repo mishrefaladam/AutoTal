@@ -4,8 +4,6 @@ import { useEffect, useRef, type ReactNode } from "react";
 
 import { cn } from "@/lib/utils";
 
-import { shouldReduceMotion } from "./preferences";
-
 /**
  * Verschiebt den Inhalt beim Scrollen minimal gegen die Scrollrichtung.
  *
@@ -69,7 +67,7 @@ export function Parallax({
     };
 
     const sync = () => {
-      const active = wide.matches && !shouldReduceMotion(reducedMotion);
+      const active = wide.matches && !reducedMotion.matches;
       if (active && !listening) {
         listening = true;
         window.addEventListener("scroll", onScroll, { passive: true });

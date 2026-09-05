@@ -4,8 +4,6 @@ import { useEffect, useRef, type ReactNode } from "react";
 
 import { cn } from "@/lib/utils";
 
-import { shouldReduceMotion } from "./preferences";
-
 /**
  * Blendet den Inhalt ein, sobald er in den sichtbaren Bereich scrollt.
  *
@@ -39,14 +37,6 @@ export function Reveal({
   useEffect(() => {
     const element = ref.current;
     if (!element) return;
-
-    // Wer reduzierte Bewegung eingestellt hat, bekommt den Inhalt sofort.
-    // Nur der explizite Development-Override darf Motion lokal erzwingen.
-    const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
-    if (shouldReduceMotion(reducedMotion)) {
-      element.dataset["reveal"] = "shown";
-      return;
-    }
 
     // Ältere Browser ohne IntersectionObserver zeigen den Inhalt direkt an,
     // statt ihn dauerhaft verborgen zu lassen.

@@ -297,12 +297,6 @@
     background-size: 200% 100%;
     animation: img-shimmer 1.4s ease-in-out infinite;
   }
-
-  @media (prefers-reduced-motion: reduce) {
-    .img-skeleton {
-      animation: none;
-    }
-  }
 }
 
 @keyframes img-shimmer {
@@ -314,14 +308,15 @@
   }
 }
 
-
 /* ==========================================================================
    Bewegung
    --------------------------------------------------------------------------
    Grundsatz: Bewegung darf nie Voraussetzung sein, um Inhalte zu lesen oder
    zu bedienen. Deshalb ist jeder Startzustand entweder sichtbar oder hinter
-   `@media (scripting: enabled)` versteckt, und `prefers-reduced-motion`
-   schaltet alles ab.
+   `@media (scripting: enabled)` versteckt.
+
+   `prefers-reduced-motion` reduziert nur scrollgekoppelte Bewegung wie
+   Parallax. Die normalen visuellen Effekte dieser Website bleiben aktiv.
 
    Animiert werden ausschließlich `transform` und `opacity` – beides erzeugt
    keinen Layout-Shift und läuft im Compositor.
@@ -453,82 +448,11 @@
   }
 }
 
-/* Wer reduzierte Bewegung eingestellt hat, bekommt dieselbe Seite – nur
-   ohne Bewegung. Nichts wird ausgeblendet, nichts verschoben. */
+/* Normale UI- und Markenbewegung bleibt sichtbar. Reduziert wird nur
+   scrollgekoppelte Bewegung, die stärker auf den Viewport wirkt. */
 @media (prefers-reduced-motion: reduce) {
-  [data-reveal],
-  [data-reveal="hidden"] {
-    opacity: 1;
-    transform: none;
-    transition: none;
-  }
-
-  .rise-in,
-  .hero-photo,
-  .marquee-track {
-    animation: none;
-  }
-
   .parallax {
     transform: none;
-  }
-
-  [data-slot="button"] [data-icon="inline-end"],
-  [data-slot="button"]:hover [data-icon="inline-end"] {
-    transition: none;
-    transform: none;
-  }
-}
-
-/* Lokaler Development-Testmodus: Production respektiert weiterhin
-   prefers-reduced-motion, weil das Attribut nur bei NODE_ENV=development und
-   NEXT_PUBLIC_FORCE_MOTION=true gesetzt wird. */
-@media (prefers-reduced-motion: reduce) {
-  html[data-force-motion="true"] {
-    scroll-behavior: smooth;
-  }
-
-  html[data-force-motion="true"] .img-skeleton {
-    animation: img-shimmer 1.4s ease-in-out infinite;
-  }
-
-  html[data-force-motion="true"] [data-reveal] {
-    transition:
-      opacity 640ms var(--ease-out-soft),
-      transform 640ms var(--ease-out-soft);
-    transition-delay: var(--reveal-delay, 0ms);
-  }
-
-  html[data-force-motion="true"] .rise-in {
-    animation: rise-in 760ms var(--ease-out-soft) both;
-    animation-delay: var(--rise-delay, 0ms);
-  }
-
-  html[data-force-motion="true"] .hero-photo {
-    animation: hero-photo 2200ms var(--ease-out-soft) both;
-  }
-
-  html[data-force-motion="true"] .marquee-track {
-    animation: marquee-slide 46s linear infinite;
-  }
-
-  html[data-force-motion="true"] .parallax {
-    transform: translate3d(0, var(--parallax-y, 0px), 0);
-  }
-
-  html[data-force-motion="true"] [data-slot="button"] [data-icon="inline-end"] {
-    transition: transform 220ms var(--ease-out-soft);
-    transform: none;
-  }
-
-  html[data-force-motion="true"] [data-slot="button"]:hover [data-icon="inline-end"] {
-    transform: translateX(3px);
-  }
-}
-
-@media (prefers-reduced-motion: reduce) and (scripting: enabled) {
-  html[data-force-motion="true"] [data-reveal="hidden"] {
-    opacity: 0;
-    transform: translateY(22px);
+    will-change: auto;
   }
 }

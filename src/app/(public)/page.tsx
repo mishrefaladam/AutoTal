@@ -293,7 +293,7 @@ export default async function HomePage() {
             },
           ].map((service, index) => (
             <Reveal as="li" key={service.href} delay={index * 110}>
-              <article className="group border-border bg-card relative flex h-full flex-col rounded-xl border p-7 transition-[transform,box-shadow] duration-300 ease-[var(--ease-out-soft)] hover:-translate-y-1 hover:shadow-[var(--shadow-card-hover)] motion-reduce:transition-none motion-reduce:hover:translate-y-0">
+              <article className="group border-border bg-card relative flex h-full flex-col rounded-xl border p-7 transition-[transform,box-shadow] duration-300 ease-[var(--ease-out-soft)] hover:-translate-y-1 hover:shadow-[var(--shadow-card-hover)]">
                 <span className="bg-brand-subtle text-brand-strong flex size-11 items-center justify-center rounded-lg">
                   <service.icon className="size-5" aria-hidden="true" />
                 </span>
@@ -314,7 +314,7 @@ export default async function HomePage() {
                 <p className="text-brand-strong mt-5 inline-flex items-center gap-1.5 text-sm font-medium">
                   {service.cta}
                   <ArrowRight
-                    className="size-4 transition-transform group-hover:translate-x-0.5 motion-reduce:transition-none motion-reduce:group-hover:translate-x-0"
+                    className="size-4 transition-transform group-hover:translate-x-0.5"
                     aria-hidden="true"
                   />
                 </p>

@@ -43,7 +43,7 @@ export function WhatsAppFab({
       target="_blank"
       rel="noopener noreferrer"
       aria-label={`${companyName} über WhatsApp kontaktieren (öffnet in neuem Tab)`}
-      className="fixed right-4 bottom-4 z-40 flex size-14 items-center justify-center rounded-full bg-[#25D366] text-white shadow-lg transition-transform hover:scale-105 focus-visible:ring-3 focus-visible:ring-[#25D366]/50 focus-visible:outline-none motion-reduce:transition-none motion-reduce:hover:scale-100 sm:right-6 sm:bottom-6"
+      className="fixed right-4 bottom-4 z-40 flex size-14 items-center justify-center rounded-full bg-[#25D366] text-white shadow-lg transition-transform hover:scale-105 focus-visible:ring-3 focus-visible:ring-[#25D366]/50 focus-visible:outline-none sm:right-6 sm:bottom-6"
     >
       {/* Offizielle WhatsApp-Glyphe – in lucide nicht enthalten. */}
       <svg
