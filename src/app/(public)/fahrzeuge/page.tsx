@@ -4,6 +4,7 @@ import { Mail, MessageCircle, Phone, Tag } from "lucide-react";
 
 import { VehicleWidget } from "@/components/integrations/vehicle-widget";
 import { Section } from "@/components/site/section";
+import { VehiclePlatformLinks } from "@/components/site/vehicle-platform-links";
 import { Button } from "@/components/ui/button";
 import { buildWhatsAppUrl } from "@/lib/whatsapp";
 import { getCompany } from "@/modules/company/repository";
@@ -65,6 +66,7 @@ export default async function VehiclesPage() {
         </h2>
 
         <VehicleWidget />
+        <VehiclePlatformLinks company={company} />
       </Section>
 
       {/* Abschluss-CTA */}

@@ -33,6 +33,21 @@ const optionalUrl = z
   )
   .transform((value) => (value === "" ? null : value));
 
+const optionalVehiclePlatformUrl = z
+  .string()
+  .trim()
+  .max(500, "Die Adresse ist zu lang.")
+  .refine(
+    (value) =>
+      value === "" ||
+      (/^https?:\/\//i.test(value) &&
+        !/[\s\\]/.test(value) &&
+        z.url({ protocol: /^https?$/ }).safeParse(value).success),
+    "Bitte eine gültige vollständige URL mit http:// oder https:// angeben.",
+  )
+  .nullish()
+  .transform((value) => value || null);
+
 /** "HH:mm" – leer bedeutet, dass der Zeitraum nicht genutzt wird. */
 const timeString = z
   .string()
@@ -144,6 +159,10 @@ export const companySettingsSchema = z.object({
 
   latitude: optionalCoordinate("Der Breitengrad", 90),
   longitude: optionalCoordinate("Der Längengrad", 180),
+
+  willhabenUrl: optionalVehiclePlatformUrl,
+  autoscoutUrl: optionalVehiclePlatformUrl,
+  gebrauchtwagenUrl: optionalVehiclePlatformUrl,
 
   openingHours: z.array(openingHourSlotSchema).max(21),
   socialLinks: z.array(socialLinkSchema).max(10),

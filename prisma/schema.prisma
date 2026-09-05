@@ -191,6 +191,10 @@ model CompanySettings {
   latitude  Float?
   longitude Float?
 
+  willhabenUrl      String?
+  autoscoutUrl      String?
+  gebrauchtwagenUrl String?
+
   openingHours OpeningHour[]
   socialLinks  SocialLink[]
 

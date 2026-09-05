@@ -63,6 +63,10 @@ export type CompanyDto = {
   latitude: number | null;
   longitude: number | null;
 
+  willhabenUrl?: string | null;
+  autoscoutUrl?: string | null;
+  gebrauchtwagenUrl?: string | null;
+
   openingHours: OpeningHourSlot[];
   socialLinks: SocialLinkDto[];
 };

@@ -89,6 +89,10 @@ export default async function AdminCompanyPage() {
     latitude: company?.latitude != null ? String(company.latitude) : "",
     longitude: company?.longitude != null ? String(company.longitude) : "",
 
+    willhabenUrl: company?.willhabenUrl ?? "",
+    autoscoutUrl: company?.autoscoutUrl ?? "",
+    gebrauchtwagenUrl: company?.gebrauchtwagenUrl ?? "",
+
     openingHours,
     socialLinks,
   };

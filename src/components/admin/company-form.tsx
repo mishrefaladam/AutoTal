@@ -17,6 +17,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { saveCompanySettings } from "@/modules/company/actions";
+import { VEHICLE_PLATFORMS } from "@/modules/company/vehicle-platforms";
 import {
   companySettingsSchema,
   type CompanySettingsFormValues,
@@ -600,6 +601,33 @@ export function CompanyForm({
                 )}
               </div>
             </div>
+          ))}
+        </div>
+      </AdminCard>
+
+      <AdminCard
+        title="Fahrzeugplattformen"
+        description="Links zu Ihren offiziellen Händlerprofilen auf Fahrzeugbörsen."
+      >
+        <div className="space-y-4">
+          {VEHICLE_PLATFORMS.map(({ field, label }) => (
+            <FormField
+              key={field}
+              label={`${label} Händlerprofil URL`}
+              htmlFor={`c-${field}`}
+              error={errors[field]?.message}
+            >
+              {({ id, describedBy, invalid }) => (
+                <Input
+                  id={id}
+                  type="url"
+                  inputMode="url"
+                  aria-invalid={invalid}
+                  aria-describedby={describedBy}
+                  {...form.register(field)}
+                />
+              )}
+            </FormField>
           ))}
         </div>
       </AdminCard>

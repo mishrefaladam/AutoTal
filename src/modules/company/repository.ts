@@ -46,6 +46,9 @@ const FALLBACK: CompanyDto = {
   contactPersonPhone: null,
   latitude: null,
   longitude: null,
+  willhabenUrl: null,
+  autoscoutUrl: null,
+  gebrauchtwagenUrl: null,
   openingHours: [],
   socialLinks: [],
 };
@@ -112,6 +115,10 @@ export const getCompany = cache(async (): Promise<CompanyDto> => {
 
     latitude: record.latitude,
     longitude: record.longitude,
+
+    willhabenUrl: record.willhabenUrl,
+    autoscoutUrl: record.autoscoutUrl,
+    gebrauchtwagenUrl: record.gebrauchtwagenUrl,
 
     openingHours: record.openingHours.map((slot) => ({
       id: slot.id,
