@@ -24,12 +24,15 @@ import { buildVehicleSlug } from "./slug";
  * Anbieter bestehen.
  */
 
-/** Alle Seiten, auf denen Fahrzeuge erscheinen. */
+/**
+ * Einzige Seite, auf der diese Fahrzeuge erscheinen.
+ *
+ * Seit der Umstellung auf die eingebettete willhaben-Börse tauchen die hier
+ * gepflegten Fahrzeuge NICHT mehr im öffentlichen Bereich auf – sie sind nur
+ * noch Datenbasis für Social Media. Den gesamten öffentlichen Baum zu
+ * invalidieren wäre deshalb reine Verschwendung.
+ */
 function revalidateVehiclePages() {
-  revalidatePath("/", "layout");
-  revalidatePath("/fahrzeuge", "page");
-  revalidatePath("/fahrzeuge/[slug]", "page");
-  revalidatePath("/sitemap.xml");
   revalidatePath("/admin/fahrzeuge");
 }
 

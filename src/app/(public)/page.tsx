@@ -33,8 +33,9 @@ import { getCompany } from "@/modules/company/repository";
  * Startseite (US-01).
  *
  * Serverseitig gerendert – der Besucher bekommt sofort echten Inhalt statt
- * eines Ladezustands (US-30). Die Fahrzeugdaten ändern sich nur beim Sync,
- * deshalb wird die Seite für 10 Minuten zwischengespeichert.
+ * eines Ladezustands (US-30). Die Unternehmensdaten ändern sich selten,
+ * deshalb wird die Seite für 10 Minuten zwischengespeichert. Beim Speichern
+ * im Admin wird sie ohnehin sofort neu validiert.
  */
 export const revalidate = 600;
 
@@ -279,7 +280,7 @@ export default async function HomePage() {
             {
               icon: Banknote,
               title: "Finanzierung berechnen",
-              text: "Rechnen Sie Ihre monatliche Rate selbst durch: Anzahlung, Laufzeit, Zinssatz und Schlussrate frei wählbar. Unverbindlich und ohne Anmeldung.",
+              text: "Rechnen Sie Ihre monatliche Rate selbst durch: Anzahlung, Laufzeit und Schlussrate frei wählbar. Unverbindlich und ohne Anmeldung.",
               href: "/finanzierung",
               cta: "Rate berechnen",
             },

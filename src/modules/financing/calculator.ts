@@ -133,32 +133,3 @@ export function calculateFinancing(rawInput: FinanceInput): FinanceResult {
     effectiveRateBp,
   };
 }
-
-/**
- * Kurzfassung für Fahrzeugkarten und die Detailseite:
- * "ab 289 €/Monat" auf Basis der Standardkonfiguration.
- */
-export function estimateMonthlyPaymentCents(
-  priceCents: number,
-  config: {
-    defaultInterestRateBp: number;
-    defaultTermMonths: number;
-    defaultDownPaymentBp: number;
-    defaultBalloonBp: number;
-  },
-): number {
-  const downPaymentCents = Math.round(
-    (priceCents * config.defaultDownPaymentBp) / 10_000,
-  );
-  const balloonCents = Math.round(
-    (priceCents * config.defaultBalloonBp) / 10_000,
-  );
-
-  return calculateFinancing({
-    priceCents,
-    downPaymentCents,
-    termMonths: config.defaultTermMonths,
-    interestRateBp: config.defaultInterestRateBp,
-    balloonCents,
-  }).monthlyPaymentCents;
-}

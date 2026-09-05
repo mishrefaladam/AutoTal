@@ -4,7 +4,6 @@ import { describe, it } from "node:test";
 import {
   getOpeningStatus,
   groupOpeningHours,
-  toSchemaOpeningHours,
 } from "@/modules/company/opening-hours";
 import type { OpeningHourSlot } from "@/modules/company/types";
 
@@ -129,15 +128,5 @@ describe("getOpeningStatus", () => {
 
     assert.equal(status.isOpen, false);
     assert.equal(status.label, "Öffnungszeiten auf Anfrage");
-  });
-});
-
-describe("toSchemaOpeningHours", () => {
-  it("erzeugt schema.org-konforme Angaben", () => {
-    const result = toSchemaOpeningHours(HOURS);
-
-    assert.ok(result.includes("Mo 08:00-12:00"));
-    assert.ok(result.includes("Sa 09:00-13:00"));
-    assert.ok(!result.some((entry) => entry.startsWith("Su")));
   });
 });

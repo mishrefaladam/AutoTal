@@ -353,7 +353,7 @@ export function VehicleForm({
             label="Beschreibung"
             htmlFor="v-description"
             error={errors.description?.message}
-            description="Fließtext für die Detailseite. Absätze durch eine Leerzeile trennen."
+            description="Fließtext als Grundlage für Social-Media-Texte. Absätze durch eine Leerzeile trennen."
           >
             {({ id, describedBy, invalid }) => (
               <Textarea

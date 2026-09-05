@@ -145,16 +145,3 @@ export function getOpeningStatus(
 
   return { isOpen: false, label: "Öffnungszeiten auf Anfrage" };
 }
-
-/**
- * Öffnungszeiten im schema.org-Format für strukturierte Daten,
- * z. B. "Mo-Fr 08:00-18:00".
- */
-export function toSchemaOpeningHours(slots: OpeningHourSlot[]): string[] {
-  const dayCodes = ["Mo", "Tu", "We", "Th", "Fr", "Sa", "Su"];
-
-  return slots
-    .filter((slot) => !slot.closed && slot.opensAt && slot.closesAt)
-    .sort((a, b) => a.weekday - b.weekday || a.position - b.position)
-    .map((slot) => `${dayCodes[slot.weekday - 1]} ${slot.opensAt}-${slot.closesAt}`);
-}

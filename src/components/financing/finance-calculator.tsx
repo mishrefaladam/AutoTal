@@ -9,7 +9,6 @@ import { Label } from "@/components/ui/label";
 import { Slider } from "@/components/ui/slider";
 import {
   applyBasisPoints,
-  bpToPercent,
   centsToEuros,
   clamp,
   eurosToCents,
@@ -52,13 +51,10 @@ import type { FinanceConfigDto } from "@/modules/financing/repository";
 export function FinanceCalculator({
   config,
   initialPriceCents,
-  priceEditable = true,
   className,
 }: {
   config: FinanceConfigDto;
   initialPriceCents: number;
-  /** Auf der Fahrzeugdetailseite steht der Preis fest. */
-  priceEditable?: boolean;
   className?: string;
 }) {
   const currentYear = new Date().getFullYear();
@@ -214,39 +210,30 @@ export function FinanceCalculator({
             Randbedingung, kein zweiter Preis – die Zweispaltigkeit hält es
             bewusst kleiner als die Hauptfrage "Wie teuer ist das Fahrzeug". */}
         <div className="grid gap-4 sm:grid-cols-2">
-          {priceEditable ? (
-            <div className="space-y-2">
-              <Label htmlFor="fin-price" className="text-muted-foreground font-normal">
-                Fahrzeugpreis
-              </Label>
-              <div className="relative">
-                <Input
-                  id="fin-price"
-                  inputMode="numeric"
-                  autoComplete="off"
-                  className="tabular pr-9"
-                  // formatNumber statt toLocaleString: sonst gruppiert ICU hier
-                  // mit geschütztem Leerzeichen ("31 400") und wiche von der
-                  // Preisanzeige darüber ab.
-                  value={formatNumber(Math.round(centsToEuros(priceCents)))}
-                  onChange={(event) => handlePriceChange(event.target.value)}
-                />
-                <span
-                  aria-hidden="true"
-                  className="text-muted-foreground pointer-events-none absolute inset-y-0 right-3 flex items-center text-sm"
-                >
-                  €
-                </span>
-              </div>
-            </div>
-          ) : (
-            <div className="flex flex-col gap-2">
-              <span className="text-muted-foreground text-sm">Fahrzeugpreis</span>
-              <span className="tabular text-base font-semibold">
-                {formatEuro(priceCents)}
+          <div className="space-y-2">
+            <Label htmlFor="fin-price" className="text-muted-foreground font-normal">
+              Fahrzeugpreis
+            </Label>
+            <div className="relative">
+              <Input
+                id="fin-price"
+                inputMode="numeric"
+                autoComplete="off"
+                className="tabular pr-9"
+                // formatNumber statt toLocaleString: sonst gruppiert ICU hier
+                // mit geschütztem Leerzeichen ("31 400") und wiche von der
+                // Preisanzeige darüber ab.
+                value={formatNumber(Math.round(centsToEuros(priceCents)))}
+                onChange={(event) => handlePriceChange(event.target.value)}
+              />
+              <span
+                aria-hidden="true"
+                className="text-muted-foreground pointer-events-none absolute inset-y-0 right-3 flex items-center text-sm"
+              >
+                €
               </span>
             </div>
-          )}
+          </div>
 
           <div className="space-y-2">
             <Label htmlFor="fin-year" className="text-muted-foreground font-normal">
@@ -385,37 +372,5 @@ function SliderField({
 
       {hint && <p className="text-muted-foreground text-xs">{hint}</p>}
     </div>
-  );
-}
-
-/** Kompakte Variante für die Fahrzeugdetailseite. */
-export function FinanceTeaser({
-  config,
-  priceCents,
-}: {
-  config: FinanceConfigDto;
-  priceCents: number;
-}) {
-  const result = calculateFinancing({
-    priceCents,
-    downPaymentCents: applyBasisPoints(priceCents, config.defaultDownPaymentBp),
-    termMonths: config.defaultTermMonths,
-    interestRateBp: config.defaultInterestRateBp,
-    balloonCents: applyBasisPoints(priceCents, config.defaultBalloonBp),
-  });
-
-  return (
-    <p className="text-muted-foreground text-sm">
-      Finanzierung ab{" "}
-      <span className="text-foreground tabular font-semibold">
-        {formatEuroPrecise(result.monthlyPaymentCents)}
-      </span>{" "}
-      pro Monat – bei {config.defaultTermMonths} Monaten Laufzeit,{" "}
-      {formatEuro(result.financedAmountCents)} Finanzierungsbetrag und{" "}
-      {bpToPercent(config.defaultInterestRateBp).toLocaleString("de-AT", {
-        minimumFractionDigits: 2,
-      })}{" "}
-      % Sollzins p. a.
-    </p>
   );
 }

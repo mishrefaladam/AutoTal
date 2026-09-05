@@ -15,9 +15,8 @@ import {
 /**
  * Finanzierungsseite (US-12, US-13).
  *
- * Der Rechner arbeitet mit einem plausiblen Beispielpreis, sobald Fahrzeuge
- * im Bestand sind – so sieht der Besucher sofort eine realistische Rate statt
- * einer Null.
+ * Der Rechner startet mit einem plausiblen Beispielpreis, damit der Besucher
+ * sofort eine realistische Rate sieht statt einer Null.
  */
 
 export const revalidate = 600;
@@ -25,8 +24,8 @@ export const revalidate = 600;
 export const metadata: Metadata = {
   title: "Finanzierung",
   description:
-    "Berechnen Sie unverbindlich Ihre monatliche Rate: Anzahlung, Laufzeit, " +
-    "Zinssatz und Schlussrate frei wählbar. Dazu unsere Finanzierungspartner " +
+    "Berechnen Sie unverbindlich Ihre monatliche Rate: Anzahlung, Laufzeit " +
+    "und Schlussrate frei wählbar. Dazu unsere Finanzierungspartner " +
     "im Überblick.",
   alternates: { canonical: "/finanzierung" },
 };
@@ -74,14 +73,14 @@ export default async function FinancingPage() {
             </h2>
             <p className="text-muted-foreground mt-3 max-w-2xl leading-relaxed">
               Die Voreinstellungen entsprechen unseren üblichen Konditionen.
-              Alle Werte lassen sich verändern.
+              Preis, Baujahr, Anzahlung, Laufzeit und Schlussrate lassen sich
+              frei einstellen.
             </p>
 
             <div className="border-border mt-7 rounded-xl border p-5 sm:p-7">
               <FinanceCalculator
                 config={config}
                 initialPriceCents={initialPriceCents}
-                priceEditable
               />
             </div>
           </div>
@@ -224,8 +223,8 @@ export default async function FinancingPage() {
             Erst das Auto, dann die Rate
           </h2>
           <p className="text-ink-muted mx-auto mt-4 max-w-xl leading-relaxed text-pretty">
-            Sehen Sie sich unseren Bestand an – auf jeder Fahrzeugseite steht
-            der Rechner mit dem tatsächlichen Preis bereits fertig eingestellt.
+            Sehen Sie sich unseren Bestand an und tragen Sie den Preis Ihres
+            Wunschfahrzeugs oben in den Rechner ein.
           </p>
 
           <Button asChild variant="brand" size="2xl" className="mt-8">

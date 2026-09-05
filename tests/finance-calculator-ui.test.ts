@@ -13,9 +13,7 @@ import { describe, it } from "node:test";
 
 const source = readFileSync("src/components/financing/finance-calculator.tsx", "utf8");
 
-// Nur der öffentliche Rechner selbst – FinanceTeaser ist eine separate,
-// aktuell ungenutzte Komponente und nennt den Zinssatz weiterhin (dort
-// als reiner Informationstext, nicht als Regler).
+// Nur die Rechner-Komponente selbst, ohne den SliderField-Baustein darunter.
 const calculatorSource = source.slice(
   source.indexOf("export function FinanceCalculator"),
   source.indexOf("function SliderField"),

@@ -3,7 +3,6 @@ import { describe, it } from "node:test";
 
 import {
   calculateFinancing,
-  estimateMonthlyPaymentCents,
   normalizeFinanceInput,
 } from "@/modules/financing/calculator";
 
@@ -154,28 +153,5 @@ describe("normalizeFinanceInput", () => {
     assert.equal(result.interestRateBp, 0);
     assert.equal(result.balloonCents, 0);
     assert.ok(result.termMonths >= 1);
-  });
-});
-
-describe("estimateMonthlyPaymentCents", () => {
-  it("entspricht der vollständigen Berechnung mit denselben Vorgaben", () => {
-    const config = {
-      defaultInterestRateBp: 599,
-      defaultTermMonths: 60,
-      defaultDownPaymentBp: 2000,
-      defaultBalloonBp: 0,
-    };
-
-    const estimate = estimateMonthlyPaymentCents(3_490_000, config);
-
-    const full = calculateFinancing({
-      priceCents: 3_490_000,
-      downPaymentCents: Math.round((3_490_000 * 2000) / 10_000),
-      termMonths: 60,
-      interestRateBp: 599,
-      balloonCents: 0,
-    });
-
-    assert.equal(estimate, full.monthlyPaymentCents);
   });
 });

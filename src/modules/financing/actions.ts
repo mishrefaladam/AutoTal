@@ -14,16 +14,17 @@ import { financeConfigSchema, financeProvidersSchema } from "./schemas";
 /**
  * Verwaltung der Finanzierungsparameter und -partner (US-13, US-17).
  *
- * Der Rechner liest diese Werte auf jeder Fahrzeugseite, deshalb werden nach
- * einer Änderung die betroffenen Routen neu validiert.
+ * Nach einer Änderung wird die Finanzierungsseite neu validiert.
  */
 
-/** Seiten, auf denen Finanzierungsdaten angezeigt werden. */
+/**
+ * Einzige öffentliche Seite, die Finanzierungsdaten anzeigt.
+ *
+ * /fahrzeuge zeigt die eingebettete willhaben-Börse und die Startseite
+ * verlinkt nur auf den Rechner – beide lesen keine Finanzierungsdaten.
+ */
 function revalidateFinancePages() {
   revalidatePath("/finanzierung");
-  revalidatePath("/fahrzeuge", "page");
-  revalidatePath("/fahrzeuge/[slug]", "page");
-  revalidatePath("/");
 }
 
 export async function saveFinanceConfig(

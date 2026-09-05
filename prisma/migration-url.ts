@@ -7,7 +7,7 @@
  */
 
 /** Beschreibt einen unbrauchbaren Wert, ohne ihn preiszugeben. */
-export function describeProblem(value: string): string {
+function describeProblem(value: string): string {
   if (value.trim() === "") return "besteht nur aus Leerzeichen";
   if (/^["']|["']$/.test(value.trim()))
     return "ist in Anführungszeichen eingeschlossen";
