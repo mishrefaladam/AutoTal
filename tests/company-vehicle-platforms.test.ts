@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
+import { readFileSync } from "node:fs";
 import { describe, it } from "node:test";
 
 import {
@@ -147,4 +148,26 @@ describe("Public vehicle platform links", () => {
       }
     });
   }
+});
+
+describe("Saving company settings refreshes the public pages", () => {
+  const action = readFileSync("src/modules/company/actions.ts", "utf8");
+
+  it("revalidates the whole tree, not just a single route", () => {
+    // /fahrzeuge is prerendered. Without this call a newly entered platform
+    // URL would only appear after the next deployment - which is exactly how
+    // "I saved it but nothing changed" happens.
+    assert.match(action, /revalidatePath\("\/", "layout"\)/);
+  });
+
+  it("revalidates after a successful write, not before", () => {
+    const write = action.indexOf("prisma.$transaction");
+    const revalidate = action.indexOf('revalidatePath("/", "layout")');
+
+    assert.ok(write !== -1 && revalidate !== -1);
+    assert.ok(
+      revalidate > write,
+      "the cache is invalidated before the data is written",
+    );
+  });
 });
