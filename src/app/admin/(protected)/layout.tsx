@@ -3,6 +3,7 @@ import type { Metadata } from "next";
 import { AdminShell } from "@/components/admin/admin-shell";
 import { requireAdmin } from "@/modules/admin/auth";
 import { getCompany } from "@/modules/company/repository";
+import { countNewCrmLeads } from "@/modules/crm/repository";
 import { countOpenPurchaseInquiries } from "@/modules/purchase-inquiries/repository";
 
 /**
@@ -28,9 +29,10 @@ export default async function AdminLayout({
   // überhaupt etwas aus der Datenbank gelesen.
   const session = await requireAdmin();
 
-  const [company, openInquiries] = await Promise.all([
+  const [company, openInquiries, newLeads] = await Promise.all([
     getCompany(),
     countOpenPurchaseInquiries(),
+    countNewCrmLeads(),
   ]);
 
   return (
@@ -38,6 +40,7 @@ export default async function AdminLayout({
       session={session}
       companyName={company.displayName}
       openInquiries={openInquiries}
+      newLeads={newLeads}
     >
       {children}
     </AdminShell>

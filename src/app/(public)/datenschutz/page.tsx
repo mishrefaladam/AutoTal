@@ -23,6 +23,18 @@ import { getCompany } from "@/modules/company/repository";
  *
  * TODO(rechtliches): Vor dem Livegang juristisch prüfen lassen. Insbesondere
  * die Auftragsverarbeiterverträge (Resend, Hosting) müssen abgeschlossen sein.
+ *
+ * ACHTUNG – Abschnitt 2, "Speicherung": Der Satz "Ihre Formulardaten werden
+ * nicht in einer Datenbank dieser Website gespeichert" trifft NICHT MEHR ZU.
+ *
+ *   - Ankaufanfragen werden als VehiclePurchaseInquiry gespeichert
+ *   - seit Einführung des CRM erzeugt JEDES Formular zusätzlich einen CrmLead
+ *     (Name, Telefon, E-Mail, Anliegen, interne Notizen, Bearbeitungsstand)
+ *
+ * Der Absatz muss juristisch neu formuliert werden: tatsächliche Speicherung,
+ * Zweck (Bearbeitung und Nachverfolgung der Anfrage), Speicherdauer bzw.
+ * Löschfrist. Bewusst nicht selbst umformuliert – Rechtstexte gehören
+ * geprüft, nicht geraten.
  */
 
 export const revalidate = 3600;

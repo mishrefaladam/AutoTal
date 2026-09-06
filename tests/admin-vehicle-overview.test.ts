@@ -79,11 +79,13 @@ describe("Bestand und Ankaufanfragen bleiben getrennt", () => {
 });
 
 describe("Navigation", () => {
-  it("zeigt den Zähler nur bei den Ankaufanfragen und nur wenn offen", () => {
-    assert.match(
-      shell,
-      /item\.href === "\/admin\/ankauf" && openInquiries > 0/,
-    );
+  it("zeigt einen Zähler nur dort, wo er hingehört, und nur wenn offen", () => {
+    // Seit dem CRM gibt es zwei Zähler (Ankauf und CRM). Die Zuordnung
+    // steckt in badgeCount(); gerendert wird nur bei einem Wert über null.
+    assert.match(shell, /const badgeCount = \(href: string\) =>/);
+    assert.match(shell, /href === "\/admin\/ankauf"\s*\?\s*openInquiries/);
+    assert.match(shell, /href === "\/admin\/crm"\s*\?\s*newLeads/);
+    assert.match(shell, /badgeCount\(item\.href\) > 0 &&/);
   });
 });
 

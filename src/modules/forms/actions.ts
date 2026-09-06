@@ -13,6 +13,7 @@ import {
   rateLimitMessage,
 } from "@/lib/rate-limit";
 import { type ActionResult, fail, ok, toActionResult } from "@/lib/result";
+import { createCrmLead } from "@/modules/crm/repository";
 import { createPurchaseInquiry } from "@/modules/purchase-inquiries/repository";
 import { FUEL_LABELS, TRANSMISSION_LABELS } from "@/modules/vehicles/labels";
 
@@ -30,13 +31,17 @@ import { contactSchema, sellCarSchema, toFieldErrors } from "./schemas";
  * Ablauf für alle: Rate Limit -> Validierung -> Anreicherung aus der
  * Datenbank -> Versand über Resend.
  *
- * DATENSCHUTZ: Das Kontaktformular wird NICHT gespeichert – es geht
- * ausschließlich per E-Mail an das Autohaus.
+ * DATENSCHUTZ: Beide Formulare werden seit der Einführung des CRM
+ * gespeichert – jede Anfrage erzeugt einen CrmLead, damit sie im Vertrieb
+ * nachverfolgt werden kann und nicht in einem Postfach verloren geht.
  *
- * Die Ankaufanfrage ist die Ausnahme: Sie wird zusätzlich als
- * VehiclePurchaseInquiry gespeichert, weil sie im Admin bearbeitet werden
- * muss (Status, Rückmeldung, Notizen). Dafür sind Löschfrist und Hinweis in
- * der Datenschutzerklärung erforderlich.
+ * Die Ankaufanfrage wird zusätzlich als VehiclePurchaseInquiry gespeichert,
+ * weil dort die Fahrzeugangaben stehen; der Lead verweist darauf, statt sie
+ * zu kopieren.
+ *
+ * Damit sind Löschfrist und ein Hinweis in der Datenschutzerklärung für BEIDE
+ * Formulare erforderlich, nicht mehr nur für den Ankauf. Siehe den Hinweis in
+ * src/app/(public)/datenschutz/page.tsx.
  *
  * Es wird nie eine rohe Exception zum Client durchgereicht – Fehler kommen als
  * `ActionResult` mit einer für Nutzer verständlichen Meldung zurück (US-29).
@@ -92,6 +97,17 @@ export async function submitContactForm(
     { schema: contactSchema, rule: RATE_LIMITS.contact, formName: "kontakt" },
     raw,
     async (data) => {
+      // Zuerst der Lead: Er ist die belastbare Zustellung. Schlägt das fehl,
+      // war die Anfrage nicht erfolgreich und der Kunde erfährt es.
+      await createCrmLead({
+        name: data.name,
+        phone: data.phone ?? null,
+        email: data.email,
+        type: "GENERAL",
+        source: "WEBSITE",
+        message: `${data.subject}\n\n${data.message}`,
+      });
+
       const mail = renderNotificationMail({
         heading: data.subject,
         intro: `${data.name} hat das Kontaktformular ausgefüllt.`,
@@ -103,13 +119,22 @@ export async function submitContactForm(
         ],
       });
 
-      await sendMail({
-        subject: `Kontaktanfrage: ${data.subject}`,
-        html: mail.html,
-        text: mail.text,
-        replyTo: data.email,
-        formName: "kontakt",
-      });
+      // Wie beim Ankauf: Die Benachrichtigung ist Komfort, nicht die
+      // Zustellung. Der Lead liegt bereits im CRM.
+      try {
+        await sendMail({
+          subject: `Kontaktanfrage: ${data.subject}`,
+          html: mail.html,
+          text: mail.text,
+          replyTo: data.email,
+          formName: "kontakt",
+        });
+      } catch (error) {
+        logger.error(
+          "Kontaktanfrage gespeichert, aber E-Mail-Benachrichtigung fehlgeschlagen",
+          { error, formName: "kontakt" },
+        );
+      }
     },
   );
 }
@@ -130,7 +155,7 @@ export async function submitSellCarRequest(
       // Zuerst speichern: Der Datensatz im Admin ist die belastbare
       // Zustellung. Schlägt das fehl, war die Anfrage nicht erfolgreich und
       // der Fehler geht an den Kunden.
-      await createPurchaseInquiry({
+      const inquiry = await createPurchaseInquiry({
         customerName: data.name,
         customerPhone: data.phone,
         customerEmail: data.email,
@@ -146,6 +171,18 @@ export async function submitSellCarRequest(
             ? eurosToCents(data.priceExpectationEuro)
             : undefined,
         message: data.condition ?? "",
+      });
+
+      // Der Lead verweist auf die Anfrage, statt die Fahrzeugdaten ein
+      // zweites Mal zu speichern.
+      await createCrmLead({
+        name: data.name,
+        phone: data.phone,
+        email: data.email,
+        type: "SELL",
+        source: "WEBSITE",
+        message: data.condition ?? "",
+        purchaseInquiryId: inquiry.id,
       });
 
       const mail = renderNotificationMail({

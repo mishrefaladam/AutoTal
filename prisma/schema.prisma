@@ -219,6 +219,10 @@ model VehiclePurchaseInquiry {
   /// Nur im Admin sichtbar
   internalNotes String                @default("")
 
+  /// Gegenstück zur Relation in CrmLead – erlaubt den Sprung von der Anfrage
+  /// zum Lead, ohne die Kundendaten hier ein zweites Mal zu halten.
+  crmLead CrmLead?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -468,4 +472,84 @@ model RateLimitCounter {
   expiresAt   DateTime
 
   @@index([expiresAt])
+}
+
+// ---------------------------------------------------------------------------
+// CRM
+// ---------------------------------------------------------------------------
+
+/// Anliegen eines Leads – aus Sicht des Kunden formuliert.
+enum CrmLeadType {
+  /// Kunde möchte ein Fahrzeug kaufen
+  BUY
+  /// Kunde möchte AutoTal ein Fahrzeug verkaufen
+  SELL
+  FINANCING
+  TEST_DRIVE
+  GENERAL
+}
+
+/// Bearbeitungsstand im Vertrieb.
+enum CrmLeadStatus {
+  NEW
+  CONTACTED
+  APPOINTMENT
+  IN_PROGRESS
+  WON
+  LOST
+}
+
+/// Woher der Kontakt kam.
+enum CrmLeadSource {
+  WEBSITE
+  WHATSAPP
+  INSTAGRAM
+  WILLHABEN
+  AUTOSCOUT
+  GEBRAUCHTWAGEN
+  /// Von Hand im Admin angelegt, etwa nach einem Telefonat
+  MANUAL
+}
+
+/// Ein Kontakt aus einer Anfrage – die zentrale Arbeitsliste des Vertriebs.
+///
+/// Bewusst schlank: Der Lead hält nur, was zur Nachverfolgung nötig ist.
+/// Fachliche Details eines angebotenen Fahrzeugs bleiben in
+/// VehiclePurchaseInquiry und werden über die Relation gelesen, statt sie
+/// hier ein zweites Mal zu speichern.
+model CrmLead {
+  id String @id @default(cuid())
+
+  // -- Kontakt ----------------------------------------------------------------
+  /// Mindestens eine Erreichbarkeit (phone oder email) wird beim Anlegen erzwungen
+  name  String
+  phone String?
+  email String?
+
+  // -- Einordnung -------------------------------------------------------------
+  type   CrmLeadType
+  source CrmLeadSource @default(WEBSITE)
+  status CrmLeadStatus @default(NEW)
+
+  /// Anliegen des Kunden, unverändert übernommen
+  message String @default("")
+
+  // -- Bearbeitung ------------------------------------------------------------
+  /// Nur im Admin sichtbar
+  internalNotes String    @default("")
+  /// Wird gesetzt, wenn jemand den Kontakt dokumentiert
+  lastContactAt DateTime?
+
+  /// Die zugehörige Ankaufanfrage, falls der Lead aus dem Ankaufformular
+  /// stammt. Eins zu eins: Jede Anfrage erzeugt höchstens einen Lead.
+  purchaseInquiryId String?                 @unique
+  purchaseInquiry   VehiclePurchaseInquiry? @relation(fields: [purchaseInquiryId], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([status, createdAt])
+  @@index([type, createdAt])
+  @@index([source, createdAt])
+  @@index([createdAt])
 }

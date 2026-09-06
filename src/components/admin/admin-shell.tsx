@@ -14,6 +14,7 @@ import {
   Menu,
   Plug,
   Sparkles,
+  Users,
   X,
 } from "lucide-react";
 
@@ -47,6 +48,11 @@ const ADMIN_NAV = [
     icon: Inbox,
   },
   {
+    href: "/admin/crm",
+    label: "CRM",
+    icon: Users,
+  },
+  {
     href: "/admin/unternehmen",
     label: "Unternehmen",
     icon: Building2,
@@ -72,16 +78,26 @@ export function AdminShell({
   session,
   companyName,
   openInquiries = 0,
+  newLeads = 0,
   children,
 }: {
   session: AdminSession;
   companyName: string;
   /** Offene Ankaufanfragen – erscheinen als Zähler an der Navigation. */
   openInquiries?: number;
+  /** Leads im Status "Neu" – ebenfalls als Zähler. */
+  newLeads?: number;
   children: React.ReactNode;
 }) {
   const pathname = usePathname();
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
+
+  const badgeCount = (href: string) =>
+    href === "/admin/ankauf"
+      ? openInquiries
+      : href === "/admin/crm"
+        ? newLeads
+        : 0;
 
   const navigation = (
     <nav aria-label="Verwaltung" className="flex-1">
@@ -106,14 +122,14 @@ export function AdminShell({
                 <item.icon className="size-4 shrink-0" aria-hidden="true" />
                 {item.label}
 
-                {/* Nur bei den Ankaufanfragen und nur, wenn wirklich etwas
-                    offen ist – eine dauerhafte "0" wäre reines Rauschen. */}
-                {item.href === "/admin/ankauf" && openInquiries > 0 && (
+                {/* Zähler nur, wenn wirklich etwas offen ist – eine
+                    dauerhafte "0" wäre reines Rauschen. */}
+                {badgeCount(item.href) > 0 && (
                   <span
                     className="bg-brand text-brand-foreground tabular ml-auto rounded-full px-1.5 py-0.5 text-xs font-semibold"
-                    aria-label={`${openInquiries} offen`}
+                    aria-label={`${badgeCount(item.href)} offen`}
                   >
-                    {openInquiries}
+                    {badgeCount(item.href)}
                   </span>
                 )}
               </Link>
