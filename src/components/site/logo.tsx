@@ -14,9 +14,9 @@ import { cn } from "@/lib/utils";
  *
  *   "AUTO"  erbt die Textfarbe des Elternelements (`currentColor`). Auf
  *           hellem Grund also dunkel, in der Fußzeile hell.
- *   "TAL"   nutzt `text-wordmark-accent` – EIN fester Orangeton, oben wie
- *           unten identisch. Bewusst nicht `brand-strong`: Das wechselt je
- *           nach Untergrund die Helligkeit, wodurch die Marke im Header
+ *   "TAL"   nutzt `text-wordmark-accent` – das volle Logo-Gold, oben wie
+ *           unten derselbe Ton. Bewusst nicht `brand-strong`: Das wechselt
+ *           je nach Untergrund die Helligkeit, wodurch die Marke im Header
  *           dunkelgold und im Footer hellgold wirkte.
  *
  * GRÖSSE kommt über `className` als Schriftgröße (z. B. "text-2xl lg:text-3xl"),
