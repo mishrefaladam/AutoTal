@@ -15,6 +15,7 @@ import {
   PURCHASE_INQUIRY_CLOSED_STATUSES,
   PURCHASE_INQUIRY_STATUS_LABELS,
   PURCHASE_INQUIRY_STATUS_ORDER,
+  purchaseInquirySourceLabel,
 } from "@/modules/purchase-inquiries/labels";
 import { FUEL_LABELS, TRANSMISSION_LABELS } from "@/modules/vehicles/labels";
 import type { FuelType, TransmissionType } from "@/modules/vehicles/types";
@@ -44,6 +45,7 @@ export function PurchaseInquiryRow({
     priceExpectationCents: number | null;
     message: string;
     status: PurchaseInquiryStatus;
+    source: string;
     internalNotes: string;
     createdAt: string;
   };
@@ -56,6 +58,7 @@ export function PurchaseInquiryRow({
   const [pending, startTransition] = useTransition();
 
   const closed = PURCHASE_INQUIRY_CLOSED_STATUSES.includes(inquiry.status);
+  const sourceLabel = purchaseInquirySourceLabel(inquiry.source);
   const dirty = status !== inquiry.status || notes !== inquiry.internalNotes;
 
   const save = () => {
@@ -147,6 +150,12 @@ export function PurchaseInquiryRow({
           <dt className="text-muted-foreground">Eingegangen</dt>
           <dd className="tabular mt-0.5">{inquiry.createdAt}</dd>
         </div>
+        {sourceLabel && (
+          <div>
+            <dt className="text-muted-foreground">Herkunft</dt>
+            <dd className="mt-0.5">{sourceLabel}</dd>
+          </div>
+        )}
       </dl>
 
       {inquiry.message && (
