@@ -90,15 +90,6 @@ export function SiteHeader({
         </nav>
 
         <div className="flex items-center gap-2">
-          {phoneHref && (
-            <Button asChild variant="outline" size="xl" className="hidden sm:inline-flex">
-              <a href={`tel:${phoneHref}`}>
-                <Phone data-icon="inline-start" aria-hidden="true" />
-                <span className="tabular">{phone}</span>
-              </a>
-            </Button>
-          )}
-
           <Button asChild variant="brand" size="xl" className="hidden md:inline-flex">
             <Link href="/fahrzeuge">Fahrzeuge ansehen</Link>
           </Button>

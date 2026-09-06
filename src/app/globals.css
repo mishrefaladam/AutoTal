@@ -68,6 +68,7 @@
   --color-brand-foreground: var(--brand-foreground);
   --color-brand-subtle: var(--brand-subtle);
   --color-brand-strong: var(--brand-strong);
+  --color-wordmark-accent: var(--wordmark-accent);
   --color-ink: var(--ink);
   --color-ink-foreground: var(--ink-foreground);
   --color-ink-muted: var(--ink-muted);
@@ -129,6 +130,18 @@
   --brand-subtle: oklch(0.958 0.042 92);
   /* Abgedunkeltes Gold, 4,9:1 auf Weiß – für Beschriftungen und Icons. */
   --brand-strong: oklch(0.551 0.113 86);
+
+  /* Akzent der Wortmarke ("TAL") – bewusst EIN Ton für hellen und dunklen
+     Untergrund, damit die Marke oben und unten identisch aussieht.
+
+     Warum nicht das volle Logo-Gold? Das hat auf dem hellen Grund nur
+     1,95:1 und wäre als Schrift unlesbar. Dieser orange Ton erreicht
+     3,7:1 auf hell und 3,8:1 auf dunkel und erfüllt damit die Vorgabe für
+     große, fette Schrift auf beiden Seiten.
+
+     Bewusst NICHT --brand-strong geändert: Das trägt auch Kleintext
+     (Eyebrows, Links), der 4,5:1 braucht. */
+  --wordmark-accent: oklch(0.62 0.16 60);
 
   /* Dunkle Bühne – identisch in Light und Dark, damit der Hero konstant wirkt.
      Neutral gehalten, damit das Logo (neutrales Schwarz) nicht bläulich
@@ -198,6 +211,9 @@
   --brand-subtle: oklch(0.30 0.055 90);
   /* Auf dunklem Grund ist das volle Logo-Gold gut lesbar (9,7:1). */
   --brand-strong: oklch(0.779 0.155 88);
+
+  /* Die Wortmarke bleibt in jedem Theme derselbe Ton – das ist der Sinn. */
+  --wordmark-accent: oklch(0.62 0.16 60);
 
   --ink: oklch(0.135 0.004 90);
   --ink-foreground: oklch(0.975 0.003 95);

@@ -14,10 +14,10 @@ import { cn } from "@/lib/utils";
  *
  *   "AUTO"  erbt die Textfarbe des Elternelements (`currentColor`). Auf
  *           hellem Grund also dunkel, in der Fußzeile hell.
- *   "TAL"   nutzt `text-brand-strong`. Auf hellem Grund ist das die
- *           abgedunkelte Goldvariante (lesbarer Kontrast), innerhalb von
- *           `.bg-ink` schaltet globals.css dieselbe Variable auf das volle
- *           Logo-Gold um.
+ *   "TAL"   nutzt `text-wordmark-accent` – EIN fester Orangeton, oben wie
+ *           unten identisch. Bewusst nicht `brand-strong`: Das wechselt je
+ *           nach Untergrund die Helligkeit, wodurch die Marke im Header
+ *           dunkelgold und im Footer hellgold wirkte.
  *
  * GRÖSSE kommt über `className` als Schriftgröße (z. B. "text-2xl lg:text-3xl"),
  * nicht mehr als Höhe – die Marke ist jetzt Typografie, kein Bild.
@@ -51,7 +51,7 @@ export function Logo({
       className="font-display leading-none font-extrabold tracking-[-0.02em] whitespace-nowrap uppercase"
     >
       {WORDMARK_LEAD}
-      <span className="text-brand-strong">{WORDMARK_ACCENT}</span>
+      <span className="text-wordmark-accent">{WORDMARK_ACCENT}</span>
     </span>
   );
 
