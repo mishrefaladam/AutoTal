@@ -35,6 +35,16 @@ import { getCompany } from "@/modules/company/repository";
  * Zweck (Bearbeitung und Nachverfolgung der Anfrage), Speicherdauer bzw.
  * Löschfrist. Bewusst nicht selbst umformuliert – Rechtstexte gehören
  * geprüft, nicht geraten.
+ *
+ * ACHTUNG – zweiter offener Punkt seit dem Einbau des willhaben Widget Lite
+ * auf /fahrzeuge: Das Widget lädt beim Aufruf Tracking-Anfragen an
+ * `stats.ap24-carports.at` (Matomo, betrieben von willhaben/Carport). Das
+ * passiert ohne Zutun dieser Website, findet aber im Browser der Besucher
+ * statt.
+ *
+ * Zu klären ist, ob dafür eine Einwilligung nötig ist und ob der Dienst als
+ * Empfänger genannt werden muss. Auch das wird hier bewusst nicht selbst
+ * formuliert.
  */
 
 export const revalidate = 3600;

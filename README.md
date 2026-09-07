@@ -36,8 +36,7 @@ Zugangsdaten aus `SEED_ADMIN_EMAIL` / `SEED_ADMIN_PASSWORD`.
 Die Website läuft auch ohne Resend, OpenAI und Instagram – fehlt ein Key,
 blendet die Oberfläche die Funktion aus oder meldet es verständlich, statt
 stillschweigend zu scheitern. Der öffentliche Fahrzeugbestand kommt aus dem
-willhaben Widget Lite; solange der offizielle Einbettungscode fehlt, zeigt
-`/fahrzeuge` eine neutrale Hinweismeldung.
+willhaben Widget Lite und wird dort direkt eingebettet.
 
 ---
 
@@ -108,7 +107,8 @@ wird.
 Stand laut technischer Rückmeldung von willhaben Motornetzwerk:
 
 - **Widget Lite ist im Vertrag des Kunden enthalten.**
-- Den **Einbettungscode stellt willhaben bereit** – er liegt uns noch nicht vor.
+- Der **Einbettungscode liegt seit 06.09.2026 vor** und ist eingebaut
+  (Händler-ID `1005256`).
 - Design und Funktionsumfang von Widget Lite sind **nicht anpassbar**.
 - Es gibt für diesen Händler **keinen individuellen API-Zugang**.
 - Die im Vertrag erwähnte Export-Schnittstelle ist **keine API für diese
@@ -119,10 +119,32 @@ Stand laut technischer Rückmeldung von willhaben Motornetzwerk:
 - Ein späterer Wechsel auf das kostenpflichtige **Carport Widget** ist
   vorgesehen.
 
-**Der echte Einbettungscode ist noch einzufügen** – in
-[`willhaben-lite.tsx`](src/components/integrations/vehicle-widget/willhaben-lite.tsx),
-markiert mit `TODO: Insert official willhaben Widget Lite embed code here`.
-Danach `EMBED_AVAILABLE` auf `true` setzen.
+**Eingebaut** in
+[`willhaben-lite.tsx`](src/components/integrations/vehicle-widget/willhaben-lite.tsx)
+nach der offiziellen Anleitung
+(<https://fahrzeughandel.willhaben.at/widget-lite-doku/>):
+
+```
+<widget-lite></widget-lite>
+<script src="https://widget-lite.willhaben.at/production/1005256/loader.js"></script>
+```
+
+Zwei Vorgaben der Anleitung bestimmen den Aufbau:
+
+1. **Reihenfolge**: erst `<widget-lite>`, dann das Script. Vertauscht bleibt
+   die Fahrzeugliste leer. Ein Test sichert das ab.
+2. **Kein iframe**, keine zusätzlichen Stylesheets – das Widget rendert direkt
+   in das Custom Element (Shadow DOM).
+
+Das Script wird über `next/script` mit `strategy="afterInteractive"` geladen,
+nicht über `dangerouslySetInnerHTML`. Die Händler-ID steht als Standardwert im
+Code und lässt sich über `NEXT_PUBLIC_WILLHABEN_DEALER_ID` überschreiben; sie
+ist nicht vertraulich, da sie in der Script-URL jeder Seite steht.
+
+**Datenschutz:** Das Widget lädt Tracking-Aufrufe zu `stats.ap24-carports.at`
+(Matomo, betrieben von willhaben/Carport). Das geschieht ohne Zutun dieser
+Website und ist in der Datenschutzerklärung **noch nicht abgebildet** – vor
+einer juristischen Prüfung berücksichtigen.
 
 Solange der Code fehlt:
 
@@ -251,8 +273,10 @@ Fahrzeug passen – sonst wird der Entwurf verworfen
 (`verifyCaptionFacts`, abgesichert durch Tests).
 
 Einrichtung von Instagram: [Anleitung](src/integrations/instagram/README.md).
-Benötigt wird ein Instagram-**Business**-Konto mit verknüpfter Facebook-Seite;
-für Privatkonten stellt Meta keine Veröffentlichungs-Schnittstelle bereit.
+Benötigt wird ein professionelles Instagram-Konto vom Typ **Business** oder
+Creator. Die Anbindung nutzt Instagram Login direkt; eine verknüpfte
+Facebook-Seite ist nicht erforderlich. Für Privatkonten stellt Instagram keine
+Veröffentlichungs-Schnittstelle bereit.
 
 ---
 

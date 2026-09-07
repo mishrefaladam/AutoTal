@@ -1,60 +1,53 @@
-import type { VehicleWidgetStatus } from "./config";
+import Script from "next/script";
+
+import { LOADER_SRC } from "./willhaben-lite-config";
 
 /**
- * willhaben „Widget Lite“.
+ * willhaben „Carport Widget Lite“.
  *
- * Widget Lite ist im Vertrag des Kunden enthalten. willhaben stellt dafür
- * einen fertigen Einbettungscode bereit; Design und Funktionsumfang sind
- * nicht anpassbar. Änderungen, die der Händler auf willhaben vornimmt,
- * erscheinen laut Anbieter unmittelbar im Widget.
+ * Widget Lite ist im Vertrag des Kunden enthalten. willhaben stellt den
+ * Einbettungscode bereit; Design und Funktionsumfang sind nicht anpassbar.
+ * Änderungen, die der Händler auf willhaben vornimmt, erscheinen laut
+ * Anbieter unmittelbar im Widget.
  *
- * Es gibt für diesen Händler KEINEN individuellen API-Zugang. Die im Vertrag
- * erwähnte Export-Schnittstelle dient dem Export aus willhabenPro zu anderen
- * Plattformen und ist keine Datenquelle für diese Website.
+ * Es gibt für diesen Händler KEINEN individuellen API-Zugang. Es wird nichts
+ * synchronisiert, zwischengespeichert oder ausgelesen – das Widget lädt seine
+ * Daten selbst direkt bei willhaben.
  *
- * ---------------------------------------------------------------------------
- * TODO: Insert official willhaben Widget Lite embed code here.
- * ---------------------------------------------------------------------------
+ * EINBETTUNG (offizielle Anleitung, willhaben, Stand 06.09.2026):
+ * https://fahrzeughandel.willhaben.at/widget-lite-doku/
  *
- * Der offizielle Einbettungscode liegt noch nicht vor. Es wird bewusst NICHTS
- * geraten – weder eine URL, noch eine Widget-ID, noch ein Script-Tag. Sobald
- * willhaben den Code liefert:
+ *   <widget-lite></widget-lite>
+ *   <script src="https://widget-lite.willhaben.at/production/<ID>/loader.js"></script>
  *
- *   1. Den Code hier einsetzen. Je nach Vorgabe von willhaben kann das ein
- *      <iframe>, ein <script>, ein HTML-Container oder eine Kombination sein.
- *      Für ein <script> die Komponente `next/script` mit `strategy="afterInteractive"`
- *      verwenden – kein dangerouslySetInnerHTML.
- *   2. `EMBED_AVAILABLE` auf true setzen.
- *   3. Die vom Widget benötigten Domains in der CSP freigeben
- *      (siehe README, Abschnitt „Fahrzeugbörse / willhaben Integration“).
- *   4. Responsives Verhalten auf Mobil prüfen – der Container gibt die volle
- *      Breite vor, das Widget selbst wird nicht per CSS manipuliert.
+ * Zwei Vorgaben aus der Anleitung bestimmen den Aufbau hier:
  *
- * Kundenspezifische Kennungen (Händler-ID o. ä.) gehören NICHT hartkodiert,
- * sondern in eine Umgebungsvariable. Welche Kennung Widget Lite überhaupt
- * benötigt, ist noch nicht bekannt – deshalb wird hier noch keine angelegt.
- */
-
-/**
- * Auf `true` setzen, sobald der offizielle Einbettungscode unten eingesetzt
- * wurde. Solange `false`, zeigt die Seite bewusst keinen leeren Bereich,
- * sondern einen erklärenden Hinweis.
- */
-const EMBED_AVAILABLE = false;
-
-export function getWillhabenLiteStatus(): VehicleWidgetStatus {
-  return EMBED_AVAILABLE ? "ready" : "missing-embed";
-}
-
-/**
- * Rendert den Einbettungscode.
+ *   1. „Die Reihenfolge (erst das Element, danach das Script) […] ist
+ *      entscheidend, damit das Widget korrekt initialisiert wird.“
+ *      Deshalb steht <widget-lite> im JSX vor <Script>.
+ *   2. Es entsteht KEIN iframe und es werden keine Stylesheets nachgeladen –
+ *      das Widget rendert direkt in das Custom Element (Shadow DOM).
  *
- * Wird nur aufgerufen, wenn `getWillhabenLiteStatus()` "ready" meldet – ohne
- * hinterlegten Code gibt es hier nichts auszuliefern.
+ * Kennung und Status liegen in willhaben-lite-config.ts, damit die
+ * Server-Komponente den Status abfragen kann, ohne diesen Client-Code zu
+ * laden.
  */
 export function WillhabenLiteEmbed() {
-  if (!EMBED_AVAILABLE) return null;
+  return (
+    <>
+      {/* Einhängepunkt. Muss vor dem Script stehen – siehe oben. */}
+      <widget-lite />
 
-  // TODO: Insert official willhaben Widget Lite embed code here.
-  return null;
+      {/*
+       * `afterInteractive` lädt den Loader, sobald die Seite bedienbar ist:
+       * früh genug, dass der Bestand ohne spürbare Verzögerung erscheint,
+       * ohne das erste Rendern zu blockieren. Zu diesem Zeitpunkt steht das
+       * Element bereits im DOM.
+       *
+       * Kein `dangerouslySetInnerHTML` – das Markup ist gewöhnliches JSX,
+       * das Script lädt Next.js selbst.
+       */}
+      <Script src={LOADER_SRC} strategy="afterInteractive" />
+    </>
+  );
 }

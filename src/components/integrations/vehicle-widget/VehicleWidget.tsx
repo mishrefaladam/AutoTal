@@ -8,7 +8,8 @@ import {
   VEHICLE_WIDGET_PROVIDER,
   type VehicleWidgetStatus,
 } from "./config";
-import { WillhabenLiteEmbed, getWillhabenLiteStatus } from "./willhaben-lite";
+import { WillhabenLiteEmbed } from "./willhaben-lite";
+import { getWillhabenLiteStatus } from "./willhaben-lite-config";
 
 /**
  * Die Fahrzeugbörse – einzige Stelle, an der die Website weiß, woher der

@@ -8,16 +8,18 @@ import {
   VEHICLE_WIDGET_PROVIDER,
   type VehicleWidgetProvider,
 } from "@/components/integrations/vehicle-widget/config";
-import { getWillhabenLiteStatus } from "@/components/integrations/vehicle-widget/willhaben-lite";
+import { getWillhabenLiteStatus } from "@/components/integrations/vehicle-widget/willhaben-lite-config";
 import { getCarportStatus } from "@/components/integrations/vehicle-widget/carport";
 
 /**
  * Die Fahrzeugbörse wird von willhaben eingebettet. Es gibt für diesen
  * Händler keinen API-Zugang, und gescrapt wird nichts.
  *
- * Diese Tests sichern vor allem eines ab: dass nirgends ein Einbettungscode,
- * eine Widget-URL oder ein API-Endpunkt erfunden wurde. Solange der offizielle
- * Code fehlt, muss die Integration ehrlich „nicht eingerichtet“ melden.
+ * Der offizielle Einbettungscode liegt seit dem 06.09.2026 vor. Diese Tests
+ * sichern ab, dass genau dieser Code verwendet wird und nichts daneben
+ * erfunden wurde: eine einzige willhaben-Domain, der von willhaben genannte
+ * Pfad, kein iframe, kein dangerouslySetInnerHTML und die von der Anleitung
+ * geforderte Reihenfolge (erst das Element, dann das Script).
  */
 
 const ROOT = process.cwd();
@@ -38,9 +40,17 @@ function readAllSources(dir: string): { file: string; content: string }[] {
   return out;
 }
 
-/** Entfernt Kommentare – geprüft wird der tatsächliche Code. */
+/**
+ * Entfernt Kommentare – geprüft wird der tatsächliche Code.
+ *
+ * Das `//` in "https://" darf dabei nicht als Zeilenkommentar gelten, sonst
+ * verschwindet jede URL aus dem geprüften Code und die Prüfungen darauf
+ * laufen ins Leere.
+ */
 function stripComments(source: string): string {
-  return source.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/[^\n]*/g, "");
+  return source
+    .replace(/\/\*[\s\S]*?\*\//g, "")
+    .replace(/(^|[^:])\/\/[^\n]*/g, "$1");
 }
 
 describe("Konfiguration der Fahrzeugbörse", () => {
@@ -61,10 +71,8 @@ describe("Konfiguration der Fahrzeugbörse", () => {
 });
 
 describe("Einbettungsstatus", () => {
-  it("meldet Widget Lite als noch nicht eingerichtet", () => {
-    // Sobald der offizielle Code eingesetzt ist, wird daraus "ready" – dann
-    // ist dieser Test bewusst anzupassen.
-    assert.equal(getWillhabenLiteStatus(), "missing-embed");
+  it("meldet Widget Lite als eingerichtet", () => {
+    assert.equal(getWillhabenLiteStatus(), "ready");
   });
 
   it("meldet Carport als noch nicht eingerichtet", () => {
@@ -85,24 +93,60 @@ describe("Es wurde nichts erfunden", () => {
     assert.ok(sources.length >= 4, `nur ${sources.length} Dateien gefunden`);
   });
 
-  it("enthält keine ausgedachten willhaben-URLs", () => {
-    // Ein Verweis in einem Kommentar ist in Ordnung; eine echte URL im Code
-    // wäre geraten – niemand hat uns bisher eine genannt.
+  it("lädt ausschließlich von der von willhaben genannten Adresse", () => {
+    // Genau eine Host-Adresse, genau der Pfad aus dem gelieferten Code.
+    // Alles andere wäre geraten.
     const urlPattern = /https?:\/\/[^\s"'`)]*willhaben[^\s"'`)]*/gi;
+    const found: string[] = [];
 
+    for (const { content } of sources) {
+      found.push(...(stripComments(content).match(urlPattern) ?? []));
+    }
+
+    assert.equal(found.length, 1, `erwartet genau eine URL, gefunden: ${found}`);
+    assert.match(
+      found[0],
+      /^https:\/\/widget-lite\.willhaben\.at\/production\/\$\{DEALER_ID\}\/loader\.js$/,
+    );
+  });
+
+  it("bettet kein iframe ein", () => {
+    // Laut Anleitung rendert Widget Lite direkt in das Custom Element,
+    // ausdrücklich ohne iframe.
     for (const { file, content } of sources) {
-      const matches = stripComments(content).match(urlPattern) ?? [];
-      assert.deepEqual(matches, [], `${file} enthält eine willhaben-URL`);
+      assert.ok(
+        !/<iframe/i.test(stripComments(content)),
+        `${file} enthält ein iframe`,
+      );
     }
   });
 
-  it("enthält keine iframe- oder script-Einbettung", () => {
-    for (const { file, content } of sources) {
-      const codeOnly = stripComments(content);
+  it("lädt das Script über next/script statt über ein rohes Tag", () => {
+    const lite = sources.find((s) => s.file.endsWith("willhaben-lite.tsx"));
+    assert.ok(lite);
 
-      assert.ok(!/<iframe/i.test(codeOnly), `${file} enthält ein iframe`);
-      assert.ok(!/<script/i.test(codeOnly), `${file} enthält ein script-Tag`);
-    }
+    const code = stripComments(lite.content);
+    assert.match(code, /from "next\/script"/);
+    assert.match(code, /strategy="afterInteractive"/);
+    // Bewusst ohne /i: <Script> ist die Next.js-Komponente, <script> wäre
+    // ein rohes HTML-Tag.
+    assert.ok(!/<script[\s>]/.test(code), "rohes script-Tag im Code");
+  });
+
+  it("stellt das Element vor das Script", () => {
+    // Vorgabe der Anleitung: "Die Reihenfolge (erst das Element, danach das
+    // Script) […] ist entscheidend, damit das Widget korrekt initialisiert
+    // wird." Vertauscht bliebe die Fahrzeugliste leer.
+    const lite = sources.find((s) => s.file.endsWith("willhaben-lite.tsx"));
+    assert.ok(lite);
+
+    const code = stripComments(lite.content);
+    const element = code.indexOf("<widget-lite");
+    const script = code.indexOf("<Script");
+
+    assert.ok(element !== -1, "das Custom Element fehlt");
+    assert.ok(script !== -1, "der Script-Aufruf fehlt");
+    assert.ok(element < script, "das Script steht vor dem Element");
   });
 
   it("verwendet kein dangerouslySetInnerHTML", () => {
@@ -116,13 +160,15 @@ describe("Es wurde nichts erfunden", () => {
     }
   });
 
-  it("markiert die Einfügestelle mit einem auffindbaren TODO", () => {
-    const lite = sources.find((s) => s.file.endsWith("willhaben-lite.tsx"));
+  it("hat für Carport weiterhin keinen erfundenen Code", () => {
+    // Carport ist das kostenpflichtige Widget. Dafür liegt nach wie vor kein
+    // Einbettungscode vor – dort darf weiterhin nichts geraten werden.
+    const carport = sources.find((s) => s.file.endsWith("carport.tsx"));
 
-    assert.ok(lite, "willhaben-lite.tsx nicht gefunden");
+    assert.ok(carport, "carport.tsx nicht gefunden");
     assert.match(
-      lite.content,
-      /TODO: Insert official willhaben Widget Lite embed code here/,
+      carport.content,
+      /TODO: Insert official willhaben Carport Widget embed code here/,
     );
   });
 });
