@@ -31,6 +31,10 @@ export const RATE_LIMITS = {
   testDrive: { bucket: "test-drive", limit: 3, windowSeconds: 60 * 10 },
   sellCar: { bucket: "sell-car", limit: 3, windowSeconds: 60 * 30 },
   login: { bucket: "login", limit: 10, windowSeconds: 60 * 15 },
+  // Klickzähler der Website-Interaktionen. Großzügig, weil ein Besucher
+  // mehrere Schaltflächen ausprobieren darf – aber nicht offen, sonst ließe
+  // sich die Statistik von außen beliebig aufblasen.
+  interaction: { bucket: "interaction", limit: 60, windowSeconds: 60 * 10 },
 } as const satisfies Record<string, RateLimitRule>;
 
 export type RateLimitResult = {

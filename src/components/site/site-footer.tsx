@@ -2,6 +2,7 @@ import Link from "next/link";
 import { Clock, Mail, MapPin, MessageCircle, Phone } from "lucide-react";
 
 import { Logo } from "@/components/site/logo";
+import { InteractionLink } from "@/components/site/interaction-link";
 import { SocialIcon, socialLabel } from "@/components/site/social-icon";
 import { LEGAL_NAV, MAIN_NAV } from "@/lib/navigation";
 import { cn } from "@/lib/utils";
@@ -54,7 +55,10 @@ export function SiteFooter({ company }: { company: CompanyDto }) {
               <ul className="mt-6 flex flex-wrap gap-2">
                 {company.socialLinks.map((link) => (
                   <li key={link.id}>
-                    <a
+                    {/* Gezählt wird nur Instagram – für die übrigen Netzwerke
+                        gibt es keinen Kanal, dann bleibt es ein normaler Link. */}
+                    <InteractionLink
+                      channel={link.platform === "instagram" ? "INSTAGRAM" : null}
                       href={link.url}
                       target="_blank"
                       rel="noopener noreferrer me"
@@ -62,7 +66,7 @@ export function SiteFooter({ company }: { company: CompanyDto }) {
                       aria-label={`${socialLabel(link.platform, link.label)} (öffnet in neuem Tab)`}
                     >
                       <SocialIcon platform={link.platform} className="size-[1.125rem]" />
-                    </a>
+                    </InteractionLink>
                   </li>
                 ))}
               </ul>
@@ -119,12 +123,13 @@ export function SiteFooter({ company }: { company: CompanyDto }) {
                       className="text-ink-muted mt-0.5 size-4 shrink-0"
                       aria-hidden="true"
                     />
-                    <a
+                    <InteractionLink
+                      channel="PHONE"
                       href={`tel:${company.phoneHref}`}
                       className="text-ink-muted hover:text-ink-foreground tabular rounded transition-colors focus-visible:ring-3 focus-visible:ring-white/30 focus-visible:outline-none"
                     >
                       {company.phone}
-                    </a>
+                    </InteractionLink>
                   </p>
                 )}
 
@@ -134,12 +139,13 @@ export function SiteFooter({ company }: { company: CompanyDto }) {
                       className="text-ink-muted mt-0.5 size-4 shrink-0"
                       aria-hidden="true"
                     />
-                    <a
+                    <InteractionLink
+                      channel="EMAIL"
                       href={`mailto:${company.email}`}
                       className="text-ink-muted hover:text-ink-foreground rounded break-all transition-colors focus-visible:ring-3 focus-visible:ring-white/30 focus-visible:outline-none"
                     >
                       {company.email}
-                    </a>
+                    </InteractionLink>
                   </p>
                 )}
 
@@ -149,14 +155,15 @@ export function SiteFooter({ company }: { company: CompanyDto }) {
                       className="text-ink-muted mt-0.5 size-4 shrink-0"
                       aria-hidden="true"
                     />
-                    <a
+                    <InteractionLink
+                      channel="WHATSAPP"
                       href={whatsappHref}
                       target="_blank"
                       rel="noopener noreferrer"
                       className="text-ink-muted hover:text-ink-foreground rounded transition-colors focus-visible:ring-3 focus-visible:ring-white/30 focus-visible:outline-none"
                     >
                       WhatsApp
-                    </a>
+                    </InteractionLink>
                   </p>
                 )}
               </address>

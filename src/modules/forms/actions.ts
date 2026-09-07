@@ -17,16 +17,22 @@ import { createCrmLead } from "@/modules/crm/repository";
 import { createPurchaseInquiry } from "@/modules/purchase-inquiries/repository";
 import { FUEL_LABELS, TRANSMISSION_LABELS } from "@/modules/vehicles/labels";
 
+import { contactIntentLeadType } from "./intent";
 import { contactSchema, sellCarSchema, toFieldErrors } from "./schemas";
 
 /**
  * Server Actions der öffentlichen Formulare.
  *
- * Fahrzeuganfrage und Probefahrt sind entfallen: Der Fahrzeugbestand wird
- * über die eingebettete willhaben-Fahrzeugbörse angezeigt, es gibt auf dieser
- * Website keine eigenen Fahrzeug-Detailseiten mehr, von denen aus solche
- * Anfragen gestellt werden könnten. Interessenten nehmen entweder direkt über
- * willhaben Kontakt auf oder über das allgemeine Kontaktformular.
+ * Eigene Formulare für Fahrzeuganfrage und Probefahrt sind entfallen: Der
+ * Fahrzeugbestand wird über die eingebettete willhaben-Fahrzeugbörse
+ * angezeigt, es gibt auf dieser Website keine eigenen Fahrzeug-Detailseiten
+ * mehr, von denen aus solche Anfragen gestellt werden könnten. Interessenten
+ * nehmen entweder direkt über willhaben Kontakt auf oder über das allgemeine
+ * Kontaktformular.
+ *
+ * Damit dabei nicht jede Anfrage als GENERAL im CRM landet, bringt das
+ * Kontaktformular sein Anliegen aus der URL mit (`?anliegen=`). Siehe
+ * ./intent.ts.
  *
  * Ablauf für alle: Rate Limit -> Validierung -> Anreicherung aus der
  * Datenbank -> Versand über Resend.
@@ -103,7 +109,11 @@ export async function submitContactForm(
         name: data.name,
         phone: data.phone ?? null,
         email: data.email,
-        type: "GENERAL",
+        // Kommt der Besucher von /finanzierung oder über einen
+        // Probefahrt-Link, steht das Anliegen in der URL und wird hier zum
+        // richtigen Lead-Typ. Ohne Kontext – und bei einem unbekannten Wert –
+        // bleibt es bei GENERAL.
+        type: contactIntentLeadType(data.intent),
         source: "WEBSITE",
         message: `${data.subject}\n\n${data.message}`,
       });

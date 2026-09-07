@@ -1,5 +1,6 @@
 import { ExternalLink } from "lucide-react";
 
+import { InteractionLink } from "@/components/site/interaction-link";
 import { Button } from "@/components/ui/button";
 import type { CompanyDto } from "@/modules/company/types";
 import { VEHICLE_PLATFORMS } from "@/modules/company/vehicle-platforms";
@@ -9,9 +10,9 @@ export function VehiclePlatformLinks({
 }: {
   company: Pick<CompanyDto, (typeof VEHICLE_PLATFORMS)[number]["field"]>;
 }) {
-  const links = VEHICLE_PLATFORMS.flatMap(({ field, label }) => {
+  const links = VEHICLE_PLATFORMS.flatMap(({ field, label, channel }) => {
     const url = company[field]?.trim();
-    return url ? [{ field, label, url }] : [];
+    return url ? [{ field, label, url, channel }] : [];
   });
 
   if (links.length === 0) return null;
@@ -28,14 +29,19 @@ export function VehiclePlatformLinks({
         aria-labelledby="fahrzeugplattformen"
         className="mt-3 flex flex-wrap gap-3"
       >
-        {links.map(({ field, label, url }) => (
+        {links.map(({ field, label, url, channel }) => (
           <li key={field}>
             <Button asChild variant="outline" size="xl">
-              <a href={url} target="_blank" rel="noopener noreferrer">
+              <InteractionLink
+                channel={channel}
+                href={url}
+                target="_blank"
+                rel="noopener noreferrer"
+              >
                 {label}
                 <ExternalLink data-icon="inline-end" aria-hidden="true" />
                 <span className="sr-only"> (öffnet in neuem Tab)</span>
-              </a>
+              </InteractionLink>
             </Button>
           </li>
         ))}

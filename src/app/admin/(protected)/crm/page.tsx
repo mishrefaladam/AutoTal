@@ -13,6 +13,12 @@ import {
   CRM_LEAD_TYPE_LABELS,
 } from "@/modules/crm/labels";
 import { getCrmStatistics, listCrmLeads } from "@/modules/crm/repository";
+import {
+  INTERACTION_CHANNEL_LABELS,
+  INTERACTION_CHANNEL_MEANINGS,
+  INTERACTION_CHANNEL_ORDER,
+} from "@/modules/interactions/channels";
+import { getInteractionStatistics } from "@/modules/interactions/repository";
 import { formatDateTime } from "@/modules/vehicles/labels";
 import type {
   CrmLeadSource,
@@ -82,7 +88,7 @@ export default async function AdminCrmPage({
 
   const days = Number(periodParam);
 
-  const [leads, stats] = await Promise.all([
+  const [leads, stats, interactions] = await Promise.all([
     listCrmLeads({
       status: asEnum(statusParam, STATUSES),
       type: asEnum(typeParam, TYPES),
@@ -91,6 +97,7 @@ export default async function AdminCrmPage({
       search: search || undefined,
     }),
     getCrmStatistics(),
+    getInteractionStatistics(),
   ]);
 
   const hasFilters = Boolean(
@@ -195,6 +202,9 @@ export default async function AdminCrmPage({
       <div className="mt-8">
         <AdminCard title="Statistik">
         <div className="grid gap-6 sm:grid-cols-3">
+          {/* Zählt ausschließlich echte Leads. Klicks auf WhatsApp,
+              willhaben & Co. stehen bewusst in einem eigenen Abschnitt
+              darunter und werden hier nicht mitgerechnet. */}
           <Breakdown
             title="Nach Anliegen"
             entries={TYPES.map((type) => ({
@@ -250,6 +260,56 @@ export default async function AdminCrmPage({
             </dd>
           </div>
         </dl>
+        </AdminCard>
+      </div>
+
+      {/*
+        * Bewusst eine eigene Karte, unterhalb und optisch abgesetzt von der
+        * Lead-Statistik. Diese Zahlen sind KEINE Anfragen: Sie sagen, wie oft
+        * eine Schaltfläche gedrückt wurde – nicht, ob jemand geschrieben,
+        * angerufen oder gekauft hat. Beides in einer Tabelle zu zeigen würde
+        * genau diese Verwechslung erzeugen.
+        */}
+      <div className="mt-6">
+        <AdminCard title="Website-Interaktionen">
+          <p className="text-muted-foreground -mt-2 mb-5 text-sm leading-relaxed">
+            Klicks auf Kontakt- und Plattform-Schaltflächen der Website, letzte{" "}
+            {interactions.periodDays} Tage. Ein Klick bedeutet, dass jemand die
+            Schaltfläche gedrückt hat – nicht, dass eine Nachricht gesendet oder
+            ein Fahrzeug gekauft wurde. Diese Zahlen sind keine Leads und
+            erscheinen nicht in der Statistik oben.
+          </p>
+
+          {interactions.total === 0 ? (
+            <p className="text-muted-foreground border-border rounded-lg border border-dashed py-10 text-center text-sm">
+              In diesem Zeitraum wurde noch keine dieser Schaltflächen geklickt.
+            </p>
+          ) : (
+            <ul className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+              {INTERACTION_CHANNEL_ORDER.map((channel) => (
+                <li
+                  key={channel}
+                  className="border-border rounded-lg border p-4"
+                >
+                  <p className="text-sm font-medium">
+                    {INTERACTION_CHANNEL_LABELS[channel]}
+                  </p>
+                  <p className="font-display tabular mt-0.5 text-xl font-bold">
+                    {interactions.byChannel[channel]}
+                  </p>
+                  <p className="text-muted-foreground mt-1 text-xs">
+                    {INTERACTION_CHANNEL_MEANINGS[channel]}
+                  </p>
+                </li>
+              ))}
+            </ul>
+          )}
+
+          <p className="text-muted-foreground border-border mt-5 border-t pt-4 text-xs leading-relaxed">
+            Gespeichert wird ausschließlich, wie oft ein Kanal an einem Tag
+            angeklickt wurde – ohne IP-Adresse, ohne Kennung und ohne genauen
+            Zeitpunkt. Ein einzelner Klick ist damit keiner Person zuordenbar.
+          </p>
         </AdminCard>
       </div>
     </>

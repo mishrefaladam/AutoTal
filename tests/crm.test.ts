@@ -192,7 +192,10 @@ describe("Keine doppelten Leads", () => {
 describe("Formulare erzeugen Leads", () => {
   it("legt für beide öffentlichen Formulare einen Lead an", () => {
     assert.equal((formActions.match(/createCrmLead\(/g) ?? []).length, 2);
-    assert.match(formActions, /type: "GENERAL"/);
+    // Der Typ des Kontaktformulars ist nicht mehr fest: Er kommt aus dem
+    // Anliegen in der URL (GENERAL, FINANCING oder TEST_DRIVE). Welcher Wert
+    // dabei herauskommt, prüft tests/lead-classification.test.ts.
+    assert.match(formActions, /type: contactIntentLeadType\(data\.intent\)/);
     assert.match(formActions, /type: "SELL"/);
   });
 
@@ -222,7 +225,10 @@ describe("Formulare erzeugen Leads", () => {
   });
 
   it("legt den Lead vor dem Versand an", () => {
-    for (const marker of ['type: "GENERAL"', 'type: "SELL"']) {
+    for (const marker of [
+      "type: contactIntentLeadType(data.intent)",
+      'type: "SELL"',
+    ]) {
       const lead = formActions.indexOf(marker);
       const mail = formActions.indexOf("await sendMail(", lead);
       assert.ok(lead !== -1 && mail !== -1);

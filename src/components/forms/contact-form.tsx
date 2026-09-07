@@ -17,23 +17,41 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { submitContactForm } from "@/modules/forms/actions";
 import {
+  CONTACT_INTENTS,
+  type ContactIntent,
+} from "@/modules/forms/intent";
+import {
   contactSchema,
   type ContactFormValues,
   type ContactInput,
 } from "@/modules/forms/schemas";
 
-/** Allgemeines Kontaktformular für /kontakt. */
-export function ContactForm({ defaultSubject }: { defaultSubject?: string }) {
+/**
+ * Allgemeines Kontaktformular für /kontakt.
+ *
+ * Ein einziges Formular für alle Anliegen. Kommt der Besucher von einer Seite
+ * mit einem konkreten Anliegen (siehe modules/forms/intent.ts), wird dieses
+ * hier zweimal sichtbar:
+ *
+ *   - für den Besucher als vorbelegter Betreff, den er ändern kann,
+ *   - für den Server als verstecktes Feld, aus dem der CRM-Typ entsteht.
+ *
+ * Das versteckte Feld ist bewusst kein zweiter Kanal für den Betreff: Ändert
+ * jemand den Betreff, bleibt das Anliegen dasselbe. Die Einordnung im CRM soll
+ * nicht davon abhängen, wie jemand seinen Betreff formuliert.
+ */
+export function ContactForm({ intent }: { intent?: ContactIntent | null }) {
   const form = useForm<ContactFormValues, unknown, ContactInput>({
     resolver: zodResolver(contactSchema),
     defaultValues: {
       name: "",
       email: "",
       phone: "",
-      subject: defaultSubject ?? "",
+      subject: intent ? CONTACT_INTENTS[intent].subject : "",
       message: "",
       privacyConsent: false,
       website: "",
+      intent: intent ?? undefined,
     },
   });
 
@@ -44,6 +62,14 @@ export function ContactForm({ defaultSubject }: { defaultSubject?: string }) {
   return (
     <form onSubmit={onSubmit} noValidate className="relative space-y-5">
       <HoneypotField register={form.register("website")} />
+
+      {/*
+       * Das Anliegen reist als verstecktes Feld mit. Ohne Kontext wird nichts
+       * gerendert – dann fehlt das Feld schlicht und der Server bleibt bei
+       * GENERAL.
+       */}
+      {intent && <input type="hidden" {...form.register("intent")} />}
+
       <FormStatus state={state} />
 
       <div className="grid gap-5 sm:grid-cols-2">

@@ -2,10 +2,16 @@ import type { Metadata } from "next";
 import { Clock, Mail, MapPin, Phone, User } from "lucide-react";
 
 import { ContactForm } from "@/components/forms/contact-form";
+import { InteractionLink } from "@/components/site/interaction-link";
 import { Section } from "@/components/site/section";
 import { SocialIcon, socialLabel } from "@/components/site/social-icon";
 import { Button } from "@/components/ui/button";
 import { buildWhatsAppUrl, generalWhatsAppMessage } from "@/lib/whatsapp";
+import {
+  CONTACT_INTENTS,
+  CONTACT_INTENT_PARAM,
+  parseContactIntent,
+} from "@/modules/forms/intent";
 import {
   OPENING_HOURS_UNKNOWN_LABEL,
   getOpeningStatus,
@@ -22,7 +28,16 @@ export const metadata: Metadata = {
   alternates: { canonical: "/kontakt" },
 };
 
-export default async function ContactPage() {
+export default async function ContactPage({
+  searchParams,
+}: PageProps<"/kontakt">) {
+  const params = await searchParams;
+
+  // Woher der Besucher kommt, entscheidet über die Einordnung im CRM.
+  // Unbekannte Werte ergeben null und damit eine allgemeine Anfrage.
+  const intent = parseContactIntent(params[CONTACT_INTENT_PARAM]);
+  const intentConfig = intent ? CONTACT_INTENTS[intent] : null;
+
   const company = await getCompany();
   const openingDays = groupOpeningHours(company.openingHours);
   const openingStatus = getOpeningStatus(company.openingHours);
@@ -71,8 +86,21 @@ export default async function ContactPage() {
           <h2 className="font-display text-2xl font-bold tracking-tight">
             Nachricht schreiben
           </h2>
+
+          {/*
+            * Sichtbare Bestätigung des Kontexts. Ohne sie wäre für den
+            * Besucher nicht erkennbar, dass sein Klick auf „Beratung anfragen“
+            * überhaupt etwas mitgebracht hat – der vorbelegte Betreff allein
+            * sähe nach Zufall aus.
+            */}
+          {intentConfig && (
+            <p className="border-brand/30 bg-brand-subtle/40 mt-4 rounded-lg border px-4 py-3 text-sm leading-relaxed">
+              {intentConfig.notice}
+            </p>
+          )}
+
           <div className="mt-6">
-            <ContactForm />
+            <ContactForm intent={intent} />
           </div>
         </div>
 
@@ -91,12 +119,13 @@ export default async function ContactPage() {
                     />
                     <div>
                       <p className="text-muted-foreground">Telefon</p>
-                      <a
+                      <InteractionLink
+                        channel="PHONE"
                         href={`tel:${company.phoneHref}`}
                         className="tabular font-medium hover:underline"
                       >
                         {company.phone}
-                      </a>
+                      </InteractionLink>
                     </div>
                   </li>
                 )}
@@ -109,12 +138,13 @@ export default async function ContactPage() {
                     />
                     <div className="min-w-0">
                       <p className="text-muted-foreground">E-Mail</p>
-                      <a
+                      <InteractionLink
+                        channel="EMAIL"
                         href={`mailto:${company.email}`}
                         className="font-medium break-all hover:underline"
                       >
                         {company.email}
-                      </a>
+                      </InteractionLink>
                     </div>
                   </li>
                 )}
@@ -162,9 +192,14 @@ export default async function ContactPage() {
                     size="xl"
                     className="w-full bg-[#25D366] text-white hover:bg-[#1eb757] focus-visible:ring-[#25D366]/40"
                   >
-                    <a href={whatsappHref} target="_blank" rel="noopener noreferrer">
+                    <InteractionLink
+                      channel="WHATSAPP"
+                      href={whatsappHref}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                    >
                       Über WhatsApp schreiben
-                    </a>
+                    </InteractionLink>
                   </Button>
                 )}
 

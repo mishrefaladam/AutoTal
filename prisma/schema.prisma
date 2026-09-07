@@ -553,3 +553,43 @@ model CrmLead {
   @@index([source, createdAt])
   @@index([createdAt])
 }
+
+// ---------------------------------------------------------------------------
+// Website-Interaktionen
+// ---------------------------------------------------------------------------
+
+/// Kanal einer angeklickten Kontakt- oder Plattform-Schaltfläche.
+///
+/// Bewusst NICHT identisch mit CrmLeadSource, obwohl sich die Namen ähneln.
+/// Ein Klick ist keine Anfrage: Wer auf „WhatsApp“ klickt, hat noch nichts
+/// geschrieben, und wer willhaben öffnet, hat kein Auto gekauft. Ein
+/// gemeinsames Enum würde genau diese Verwechslung einladen.
+enum InteractionChannel {
+  WHATSAPP
+  PHONE
+  EMAIL
+  WILLHABEN
+  AUTOSCOUT
+  GEBRAUCHTWAGEN
+  INSTAGRAM
+}
+
+/// Tageszähler für Klicks auf ausgehende Kontakt- und Plattformlinks.
+///
+/// DATENSCHUTZ: Enthält KEINE personenbezogenen Daten – kein Datensatz je
+/// Ereignis, keine IP-Adresse, kein User-Agent, keine Kennung, kein genauer
+/// Zeitpunkt. Gespeichert wird ausschließlich, wie oft ein Kanal an einem Tag
+/// angeklickt wurde. Ein einzelner Klick ist damit keiner Person zuordenbar,
+/// auch nicht rückwirkend über eine Zusammenführung mit anderen Tabellen.
+///
+/// Die Tagesauflösung ist Absicht: Feiner wäre bei geringem Verkehr ein
+/// Zeitstempel, über den sich ein Besuch mit anderen Quellen verknüpfen ließe.
+model InteractionCounter {
+  channel InteractionChannel
+  /// Tag in lokaler Zeitrechnung, ohne Uhrzeit
+  day     DateTime           @db.Date
+  count   Int                @default(0)
+
+  @@id([channel, day])
+  @@index([day])
+}

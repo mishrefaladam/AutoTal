@@ -1,12 +1,14 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { Mail, MessageCircle, Phone, Tag } from "lucide-react";
+import { CalendarClock, Mail, MessageCircle, Phone, Tag } from "lucide-react";
 
 import { VehicleWidget } from "@/components/integrations/vehicle-widget";
+import { InteractionLink } from "@/components/site/interaction-link";
 import { Section } from "@/components/site/section";
 import { VehiclePlatformLinks } from "@/components/site/vehicle-platform-links";
 import { Button } from "@/components/ui/button";
 import { buildWhatsAppUrl } from "@/lib/whatsapp";
+import { contactHrefForIntent } from "@/modules/forms/intent";
 import { getCompany } from "@/modules/company/repository";
 
 /**
@@ -66,6 +68,30 @@ export default async function VehiclesPage() {
         </h2>
 
         <VehicleWidget />
+
+        {/*
+          * Der einzige Probefahrt-Einstieg der Website. Bewusst hier und nicht
+          * im Abschluss-Abschnitt: Der steht unter „Wunschfahrzeug nicht
+          * gefunden?“ – eine Probefahrt bezieht sich aber auf ein Fahrzeug,
+          * das man eben gesehen hat.
+          *
+          * Eigene Fahrzeug-Detailseiten mit je eigenem Formular gibt es
+          * bewusst nicht; der Link trägt das Anliegen über die URL ins
+          * Kontaktformular.
+          */}
+        <div className="border-border mt-8 flex flex-wrap items-center gap-x-4 gap-y-3 border-t pt-6">
+          <p className="text-muted-foreground text-sm">
+            Ein Fahrzeug interessiert Sie? Besichtigung und Probefahrt jederzeit
+            nach Vereinbarung.
+          </p>
+          <Button asChild variant="outline" size="xl">
+            <Link href={contactHrefForIntent("probefahrt")}>
+              <CalendarClock data-icon="inline-start" aria-hidden="true" />
+              Probefahrt vereinbaren
+            </Link>
+          </Button>
+        </div>
+
         <VehiclePlatformLinks company={company} />
       </Section>
 
@@ -98,10 +124,15 @@ export default async function VehiclesPage() {
                 size="2xl"
                 className="bg-[#25D366] text-white hover:bg-[#1eb757] focus-visible:ring-[#25D366]/40"
               >
-                <a href={whatsappHref} target="_blank" rel="noopener noreferrer">
+                <InteractionLink
+                  channel="WHATSAPP"
+                  href={whatsappHref}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
                   <MessageCircle data-icon="inline-start" aria-hidden="true" />
                   Über WhatsApp fragen
-                </a>
+                </InteractionLink>
               </Button>
             )}
 
@@ -116,13 +147,14 @@ export default async function VehiclesPage() {
           {company.phoneHref && (
             <p className="text-muted-foreground mt-8 text-sm">
               Oder rufen Sie einfach an:{" "}
-              <a
+              <InteractionLink
+                channel="PHONE"
                 href={`tel:${company.phoneHref}`}
                 className="text-foreground tabular font-semibold hover:underline"
               >
                 <Phone className="mr-1 inline size-4 align-[-2px]" aria-hidden="true" />
                 {company.phone}
-              </a>
+              </InteractionLink>
             </p>
           )}
         </div>

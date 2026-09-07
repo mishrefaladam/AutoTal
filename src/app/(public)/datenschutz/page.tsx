@@ -45,6 +45,17 @@ import { getCompany } from "@/modules/company/repository";
  * Zu klären ist, ob dafür eine Einwilligung nötig ist und ob der Dienst als
  * Empfänger genannt werden muss. Auch das wird hier bewusst nicht selbst
  * formuliert.
+ *
+ * HINWEIS – Website-Interaktionen (InteractionCounter): Klicks auf Telefon-,
+ * WhatsApp-, E-Mail-, Plattform- und Instagram-Schaltflächen werden gezählt.
+ * Gespeichert wird ausschließlich Kanal, Datum und Anzahl – kein Datensatz je
+ * Ereignis, keine IP-Adresse, kein User-Agent, keine Kennung, kein genauer
+ * Zeitpunkt. Nach derzeitiger Einschätzung entstehen dabei KEINE
+ * personenbezogenen Daten, weshalb dieser Zähler anders zu bewerten ist als
+ * die beiden Punkte oben.
+ *
+ * Ob der Zähler dennoch zu erwähnen ist, gehört bei der ohnehin anstehenden
+ * Prüfung mitbeurteilt. Auch hier gilt: nur dokumentiert, nicht formuliert.
  */
 
 export const revalidate = 3600;

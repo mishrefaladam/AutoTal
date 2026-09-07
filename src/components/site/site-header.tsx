@@ -6,6 +6,7 @@ import { useEffect, useState } from "react";
 import { Menu, Phone } from "lucide-react";
 
 import { Logo } from "@/components/site/logo";
+import { InteractionLink } from "@/components/site/interaction-link";
 import { Button } from "@/components/ui/button";
 import {
   Sheet,
@@ -152,10 +153,10 @@ export function SiteHeader({
               {phoneHref && (
                 <div className="border-t border-border p-5">
                   <Button asChild variant="brand" size="2xl" className="w-full">
-                    <a href={`tel:${phoneHref}`}>
+                    <InteractionLink channel="PHONE" href={`tel:${phoneHref}`}>
                       <Phone data-icon="inline-start" aria-hidden="true" />
                       <span className="tabular">{phone}</span>
-                    </a>
+                    </InteractionLink>
                   </Button>
                 </div>
               )}

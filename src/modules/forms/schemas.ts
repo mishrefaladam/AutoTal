@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+import { parseContactIntent } from "./intent";
+
 /**
  * Validierungsschemata aller öffentlichen Formulare.
  *
@@ -126,10 +128,25 @@ const privacyConsent = requiredConsent(
 
 // --- Kontaktformular -------------------------------------------------------
 
+/**
+ * Anliegen aus `/kontakt?anliegen=…`, vom Formular als verstecktes Feld
+ * mitgeschickt.
+ *
+ * Bewusst ein `transform` statt `z.enum(...)`: Ein unbekannter Wert darf das
+ * Absenden NICHT verhindern. Er wird still zu `undefined` und der Lead damit
+ * zu GENERAL – ein veralteter Link ist ein Problem des Links, nicht des Kunden.
+ */
+const contactIntent = z
+  .string()
+  .trim()
+  .optional()
+  .transform((value) => parseContactIntent(value) ?? undefined);
+
 export const contactSchema = z.object({
   name,
   email,
   phone: phoneOptional,
+  intent: contactIntent,
   subject: z
     .string()
     .trim()

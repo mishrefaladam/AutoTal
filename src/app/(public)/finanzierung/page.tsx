@@ -7,6 +7,7 @@ import { FinanceCalculator } from "@/components/financing/finance-calculator";
 import { Section, SectionHeader } from "@/components/site/section";
 import { Button } from "@/components/ui/button";
 import { formatPercent } from "@/lib/money";
+import { contactHrefForIntent } from "@/modules/forms/intent";
 import {
   getFinanceConfig,
   listFinanceProviders,
@@ -131,7 +132,11 @@ export default async function FinancingPage() {
               {/* Stärkster Abschluss der Seite – bewusst größer als der
                   übrige Text der Karte. */}
               <Button asChild variant="brand" size="2xl" className="mt-8 w-full">
-                <Link href="/kontakt">Beratung anfragen</Link>
+                {/* Mit Anliegen, damit im CRM ein FINANCING-Lead entsteht
+                    und keine allgemeine Anfrage. */}
+                <Link href={contactHrefForIntent("finanzierung")}>
+                  Beratung anfragen
+                </Link>
               </Button>
             </div>
           </aside>
