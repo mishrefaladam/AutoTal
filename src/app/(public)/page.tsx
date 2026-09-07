@@ -18,6 +18,7 @@ import {
 import { Marquee } from "@/components/motion/marquee";
 import { Parallax } from "@/components/motion/parallax";
 import { Reveal } from "@/components/motion/reveal";
+import { InteractionLink } from "@/components/site/interaction-link";
 import { Section, SectionHeader } from "@/components/site/section";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -372,7 +373,8 @@ export default async function HomePage() {
             <ul className="space-y-4">
               {company.phone && (
                 <li>
-                  <a
+                  <InteractionLink
+                    channel="PHONE"
                     href={`tel:${company.phoneHref}`}
                     className="group border-border hover:border-brand/40 flex items-center gap-4 rounded-xl border p-4 transition-colors focus-visible:ring-3 focus-visible:ring-ring/50 focus-visible:outline-none"
                   >
@@ -385,13 +387,14 @@ export default async function HomePage() {
                       </span>
                       <span className="tabular font-medium">{company.phone}</span>
                     </span>
-                  </a>
+                  </InteractionLink>
                 </li>
               )}
 
               {whatsappHref && (
                 <li>
-                  <a
+                  <InteractionLink
+                    channel="WHATSAPP"
                     href={whatsappHref}
                     target="_blank"
                     rel="noopener noreferrer"
@@ -413,13 +416,14 @@ export default async function HomePage() {
                       </span>
                       <span className="font-medium">Direkt Nachricht senden</span>
                     </span>
-                  </a>
+                  </InteractionLink>
                 </li>
               )}
 
               {company.email && (
                 <li>
-                  <a
+                  <InteractionLink
+                    channel="EMAIL"
                     href={`mailto:${company.email}`}
                     className="group border-border hover:border-brand/40 flex items-center gap-4 rounded-xl border p-4 transition-colors focus-visible:ring-3 focus-visible:ring-ring/50 focus-visible:outline-none"
                   >
@@ -434,7 +438,7 @@ export default async function HomePage() {
                         {company.email}
                       </span>
                     </span>
-                  </a>
+                  </InteractionLink>
                 </li>
               )}
             </ul>

@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useEffect, useRef } from "react";
 import { X } from "lucide-react";
 
+import { InteractionLink } from "@/components/site/interaction-link";
 import { Button } from "@/components/ui/button";
 import {
   REFERRAL_POPUP_DELAY_MS,
@@ -135,14 +136,15 @@ export function ReferralPopup({
                 size="xl"
                 className="w-full sm:flex-1"
               >
-                <a
+                <InteractionLink
+                  channel="WHATSAPP"
                   href={whatsappHref}
                   target="_blank"
                   rel="noopener noreferrer"
                   onClick={close}
                 >
                   Über WhatsApp melden
-                </a>
+                </InteractionLink>
               </Button>
               <Button
                 asChild

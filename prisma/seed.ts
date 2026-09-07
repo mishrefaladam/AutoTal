@@ -34,12 +34,27 @@ const COMPANY_DATA = {
   legalName: "Autotal e.U.",
   displayName: "AutoTal",
   tagline: "Geprüfte Gebrauchtwagen nahe Wien",
+  // Bewusst ohne Firmengeschichte, Jahreszahlen, Stückzahlen oder Garantien:
+  // Der Text enthält nur Aussagen, die die Website ohnehin trifft und die
+  // AutoTal belegen kann. Absätze durch Leerzeilen getrennt – /ueber-uns
+  // rendert daraus einzelne <p>, was auf dem Telefon lesbar bleibt.
   aboutText:
-    "AutoTal ist ein inhabergeführtes Autohaus in Strasshof an der Nordbahn. " +
-    "Wir kaufen, prüfen und verkaufen Gebrauchtwagen – jedes Fahrzeug wird " +
-    "vor der Übergabe technisch durchgesehen und kommt mit gültiger " +
-    "§57a-Begutachtung. Was wir über ein Auto wissen, sagen wir Ihnen. " +
-    "Auch das, was nicht im Prospekt steht.",
+    "AutoTal ist ein inhabergeführtes Autohaus in Strasshof an der " +
+    "Nordbahn, nahe Wien. Wir kaufen, prüfen und verkaufen Gebrauchtwagen – " +
+    "und nehmen uns für beides Zeit.\n\n" +
+    "Jedes Fahrzeug wird vor der Übergabe technisch durchgesehen und kommt " +
+    "mit gültiger §57a-Begutachtung. Was uns dabei auffällt, wird repariert " +
+    "oder offen benannt. Bekannte Mängel stehen im Inserat, nicht im " +
+    "Kleingedruckten: Sie sollen vor dem Kauf wissen, worauf Sie sich " +
+    "einlassen.\n\n" +
+    "In der Beratung lassen wir Ihnen Ihre Zeit. Passt ein Fahrzeug nicht " +
+    "zu Ihnen, sagen wir das – lieber verkaufen wir Ihnen nichts als das " +
+    "falsche Auto. Auf Wunsch rechnen wir eine Finanzierung gemeinsam durch, " +
+    "unverbindlich und mit offenen Zahlen. Und wenn Sie Ihr bisheriges " +
+    "Fahrzeug abgeben möchten, kaufen wir es an.\n\n" +
+    "Uns ist wichtiger, dass Sie wiederkommen, als dass es heute schnell " +
+    "geht. Deshalb sind wir auch nach dem Kauf für Sie da – am schnellsten " +
+    "erreichen Sie uns telefonisch.",
 
   street: "Hauptstraße 147",
   postalCode: "2231",

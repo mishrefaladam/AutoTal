@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { BadgeCheck, Banknote, Clock, FileCheck, Phone } from "lucide-react";
 
 import { SellCarForm } from "@/components/forms/sell-car-form";
+import { InteractionLink } from "@/components/site/interaction-link";
 import { Section } from "@/components/site/section";
 import { Button } from "@/components/ui/button";
 import { buildWhatsAppUrl } from "@/lib/whatsapp";
@@ -125,22 +126,26 @@ export default async function SellCarPage() {
               <div className="mt-5 space-y-3">
                 {company.phoneHref && (
                   <Button asChild variant="brand" size="xl" className="w-full">
-                    <a href={`tel:${company.phoneHref}`}>
+                    <InteractionLink
+                      channel="PHONE"
+                      href={`tel:${company.phoneHref}`}
+                    >
                       <Phone data-icon="inline-start" aria-hidden="true" />
                       <span className="tabular">{company.phone}</span>
-                    </a>
+                    </InteractionLink>
                   </Button>
                 )}
 
                 {whatsappHref && (
                   <Button asChild variant="outline" size="xl" className="w-full">
-                    <a
+                    <InteractionLink
+                      channel="WHATSAPP"
                       href={whatsappHref}
                       target="_blank"
                       rel="noopener noreferrer"
                     >
                       Über WhatsApp schreiben
-                    </a>
+                    </InteractionLink>
                   </Button>
                 )}
               </div>

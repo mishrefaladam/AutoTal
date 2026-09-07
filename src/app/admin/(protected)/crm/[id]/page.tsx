@@ -11,7 +11,7 @@ import { formatEuro, formatKilometers } from "@/lib/money";
 import { buildWhatsAppUrl } from "@/lib/whatsapp";
 import {
   CRM_LEAD_SOURCE_LABELS,
-  CRM_LEAD_STATUS_LABELS,
+  crmStatusLabel,
   CRM_LEAD_TYPE_LABELS,
 } from "@/modules/crm/labels";
 import { getCrmLead } from "@/modules/crm/repository";
@@ -63,7 +63,7 @@ export default async function AdminCrmLeadPage({
               <dt className="text-muted-foreground">Status</dt>
               <dd className="mt-1">
                 <Badge variant="secondary">
-                  {CRM_LEAD_STATUS_LABELS[lead.status]}
+                  {crmStatusLabel(lead.status, lead.type)}
                 </Badge>
               </dd>
             </div>
@@ -194,6 +194,9 @@ export default async function AdminCrmLeadPage({
             lead={{
               id: lead.id,
               status: lead.status,
+              type: lead.type,
+              archivedAt: lead.archivedAt,
+              hasPurchaseInquiry: lead.purchaseInquiry !== null,
               internalNotes: lead.internalNotes,
             }}
           />

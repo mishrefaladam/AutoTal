@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { ArrowRight, Handshake, MapPin, Phone, ShieldCheck, Wrench } from "lucide-react";
 
+import { InteractionLink } from "@/components/site/interaction-link";
 import { Section, SectionHeader } from "@/components/site/section";
 import { Button } from "@/components/ui/button";
 import { getCompany } from "@/modules/company/repository";
@@ -65,11 +66,25 @@ export default async function AboutPage() {
               Wer wir sind
             </h2>
 
+            {/*
+              * Absätze kommen aus Leerzeilen im gepflegten Text. Der erste
+              * bekommt etwas mehr Gewicht – er trägt die Kernaussage und ist
+              * auf dem Telefon oft das Einzige, was ohne Scrollen zu sehen
+              * ist. `max-w-2xl` am Elternelement hält die Zeilen auf dem
+              * Desktop bei rund 75 Zeichen; darüber wird Fließtext mühsam.
+              */}
             <div className="mt-5 space-y-4 leading-relaxed text-pretty">
               {company.aboutText ? (
                 company.aboutText
                   .split(/\n{2,}/)
-                  .map((paragraph, index) => <p key={index}>{paragraph}</p>)
+                  .map((paragraph, index) => (
+                    <p
+                      key={index}
+                      className={index === 0 ? "text-lg" : undefined}
+                    >
+                      {paragraph}
+                    </p>
+                  ))
               ) : (
                 <p className="text-muted-foreground">
                   {/* Ohne gepflegten Text bleibt die Seite trotzdem sinnvoll. */}
@@ -113,10 +128,13 @@ export default async function AboutPage() {
               <div className="mt-6 space-y-3">
                 {company.phoneHref && (
                   <Button asChild variant="brand" size="xl" className="w-full">
-                    <a href={`tel:${company.phoneHref}`}>
+                    <InteractionLink
+                      channel="PHONE"
+                      href={`tel:${company.phoneHref}`}
+                    >
                       <Phone data-icon="inline-start" aria-hidden="true" />
                       <span className="tabular">{company.phone}</span>
-                    </a>
+                    </InteractionLink>
                   </Button>
                 )}
 

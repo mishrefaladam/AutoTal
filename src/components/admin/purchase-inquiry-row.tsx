@@ -2,21 +2,23 @@
 
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
-import { Loader2 } from "lucide-react";
+import { Archive, Loader2 } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { formatEuro, formatKilometers } from "@/lib/money";
-import type { PurchaseInquiryStatus } from "@/generated/prisma/enums";
-import { updatePurchaseInquiry } from "@/modules/purchase-inquiries/admin-actions";
+import type { CrmLeadStatus } from "@/generated/prisma/enums";
+import { archiveCrmLead } from "@/modules/crm/admin-actions";
 import {
-  PURCHASE_INQUIRY_CLOSED_STATUSES,
-  PURCHASE_INQUIRY_STATUS_LABELS,
-  PURCHASE_INQUIRY_STATUS_ORDER,
-  purchaseInquirySourceLabel,
-} from "@/modules/purchase-inquiries/labels";
+  CRM_LEAD_CLOSED_STATUSES,
+  CRM_LEAD_STATUS_ORDER,
+  crmStatusHint,
+  crmStatusLabel,
+} from "@/modules/crm/labels";
+import { updatePurchaseInquiry } from "@/modules/purchase-inquiries/admin-actions";
+import { purchaseInquirySourceLabel } from "@/modules/purchase-inquiries/labels";
 import { FUEL_LABELS, TRANSMISSION_LABELS } from "@/modules/vehicles/labels";
 import type { FuelType, TransmissionType } from "@/modules/vehicles/types";
 
@@ -26,6 +28,11 @@ import type { FuelType, TransmissionType } from "@/modules/vehicles/types";
  *
  * Die Kundenangaben sind bewusst nicht editierbar – sie sind das, was der
  * Kunde geschrieben hat. Änderbar ist nur, wie AutoTal damit umgeht.
+ *
+ * Bearbeitungsstand und Notiz gehören dem zugehörigen CRM-Lead. Was hier
+ * gespeichert wird, steht unmittelbar auch im CRM – es ist dasselbe Feld,
+ * nicht eine Kopie. Die Beschriftungen richten sich nach dem Anliegen: Bei
+ * einer Ankaufsanfrage heißt der Abschluss „Angekauft“, nicht „Gewonnen“.
  */
 export function PurchaseInquiryRow({
   inquiry,
@@ -44,20 +51,21 @@ export function PurchaseInquiryRow({
     vin: string | null;
     priceExpectationCents: number | null;
     message: string;
-    status: PurchaseInquiryStatus;
+    status: CrmLeadStatus;
     source: string;
     internalNotes: string;
     createdAt: string;
+    leadId: string | null;
   };
 }) {
   const router = useRouter();
-  const [status, setStatus] = useState<PurchaseInquiryStatus>(inquiry.status);
+  const [status, setStatus] = useState<CrmLeadStatus>(inquiry.status);
   const [notes, setNotes] = useState(inquiry.internalNotes);
   const [feedback, setFeedback] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
 
-  const closed = PURCHASE_INQUIRY_CLOSED_STATUSES.includes(inquiry.status);
+  const closed = CRM_LEAD_CLOSED_STATUSES.includes(inquiry.status);
   const sourceLabel = purchaseInquirySourceLabel(inquiry.source);
   const dirty = status !== inquiry.status || notes !== inquiry.internalNotes;
 
@@ -71,6 +79,23 @@ export function PurchaseInquiryRow({
         status,
         internalNotes: notes,
       });
+
+      if (result.ok) {
+        setFeedback(result.data.message);
+        router.refresh();
+      } else {
+        setError(result.error);
+      }
+    });
+  };
+
+  const archive = () => {
+    setError(null);
+    setFeedback(null);
+
+    startTransition(async () => {
+      // Der Lead führt den Vorgang – archiviert wird deshalb dort.
+      const result = await archiveCrmLead(inquiry.leadId!, true);
 
       if (result.ok) {
         setFeedback(result.data.message);
@@ -99,7 +124,7 @@ export function PurchaseInquiryRow({
         </div>
 
         <Badge variant={closed ? "secondary" : "default"}>
-          {PURCHASE_INQUIRY_STATUS_LABELS[inquiry.status]}
+          {crmStatusLabel(inquiry.status, "SELL")}
         </Badge>
       </div>
 
@@ -176,17 +201,25 @@ export function PurchaseInquiryRow({
             id={`status-${inquiry.id}`}
             value={status}
             disabled={pending}
-            onChange={(event) =>
-              setStatus(event.target.value as PurchaseInquiryStatus)
-            }
+            onChange={(event) => setStatus(event.target.value as CrmLeadStatus)}
             className="border-input bg-background focus-visible:border-ring focus-visible:ring-ring/50 h-9 w-full rounded-lg border px-2.5 text-sm outline-none focus-visible:ring-3 disabled:opacity-50"
           >
-            {PURCHASE_INQUIRY_STATUS_ORDER.map((value) => (
+            {CRM_LEAD_STATUS_ORDER.map((value) => (
               <option key={value} value={value}>
-                {PURCHASE_INQUIRY_STATUS_LABELS[value]}
+                {crmStatusLabel(value, "SELL")}
               </option>
             ))}
           </select>
+
+          {/* Erklärt den gewählten Stand. „Angekauft“ allein sagt noch nicht,
+              ob damit auch der Vorgang erledigt ist. */}
+          <p className="text-muted-foreground text-xs leading-relaxed">
+            {crmStatusHint(status, "SELL")}
+          </p>
+
+          <p className="text-muted-foreground text-xs leading-relaxed">
+            Dieser Stand gilt auch im CRM – es ist derselbe Vorgang.
+          </p>
         </div>
 
         <div className="space-y-2">
@@ -213,7 +246,26 @@ export function PurchaseInquiryRow({
         </p>
       )}
 
-      <div className="mt-4 flex justify-end">
+      <div className="mt-4 flex flex-wrap items-center justify-end gap-2">
+        {/*
+          * Archivieren statt Löschen: Eine erledigte Anfrage verschwindet aus
+          * der Liste und aus der Statistik, bleibt aber erhalten. Endgültig
+          * gelöscht wird nur im CRM-Archiv – ein Fehlgriff kostet hier nichts.
+          */}
+        {inquiry.leadId && (
+          <Button
+            type="button"
+            variant="outline"
+            size="xl"
+            className="mr-auto"
+            disabled={pending}
+            onClick={archive}
+          >
+            <Archive data-icon="inline-start" aria-hidden="true" />
+            Erledigt – ins Archiv
+          </Button>
+        )}
+
         <Button
           type="button"
           variant="brand"

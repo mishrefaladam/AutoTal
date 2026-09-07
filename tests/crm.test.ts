@@ -27,13 +27,16 @@ const repository = readFileSync("src/modules/crm/repository.ts", "utf8");
 
 describe("Beschriftungen", () => {
   it("übersetzt jeden Status ins Deutsche", () => {
+    // „Gewonnen/Verloren“ war für ein Autohaus nicht verständlich. Die
+    // allgemeine Beschriftung ist jetzt neutral; was ein Abschluss konkret
+    // heißt, hängt am Anliegen und prüft tests/crm-purchase-sync.test.ts.
     assert.deepEqual(CRM_LEAD_STATUS_LABELS, {
       NEW: "Neu",
       CONTACTED: "Kontaktiert",
-      APPOINTMENT: "Termin",
+      APPOINTMENT: "Termin vereinbart",
       IN_PROGRESS: "In Bearbeitung",
-      WON: "Gewonnen",
-      LOST: "Verloren",
+      WON: "Abgeschlossen",
+      LOST: "Nicht zustande gekommen",
     });
   });
 

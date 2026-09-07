@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { Plus, Users } from "lucide-react";
+import { Archive, ArrowLeft, Plus, Users } from "lucide-react";
 
 import { AdminCard, AdminPageHeader } from "@/components/admin/admin-page-header";
 import { CrmFilters } from "@/components/admin/crm-filters";
@@ -11,6 +11,7 @@ import {
   CRM_LEAD_SOURCE_LABELS,
   CRM_LEAD_STATUS_LABELS,
   CRM_LEAD_TYPE_LABELS,
+  crmStatusLabel,
 } from "@/modules/crm/labels";
 import { getCrmStatistics, listCrmLeads } from "@/modules/crm/repository";
 import {
@@ -86,6 +87,10 @@ export default async function AdminCrmPage({
   const periodParam = first(params.period);
   const search = first(params.q).trim();
 
+  // Das Archiv ist eine eigene Ansicht, kein Filter neben den anderen:
+  // Erledigtes soll man sehen können, aber nicht versehentlich mitzählen.
+  const archived = first(params.archiv) === "1";
+
   const days = Number(periodParam);
 
   const [leads, stats, interactions] = await Promise.all([
@@ -95,6 +100,7 @@ export default async function AdminCrmPage({
       source: asEnum(sourceParam, SOURCES),
       periodDays: Number.isFinite(days) && days > 0 ? days : undefined,
       search: search || undefined,
+      archived,
     }),
     getCrmStatistics(),
     getInteractionStatistics(),
@@ -107,15 +113,28 @@ export default async function AdminCrmPage({
   return (
     <>
       <AdminPageHeader
-        title="CRM"
-        description="Alle Anfragen aus der Website und manuell erfasste Kontakte."
+        title={archived ? "CRM – Archiv" : "CRM"}
+        description={
+          archived
+            ? "Erledigte Vorgänge. Sie zählen in keiner Statistik mit und können zurückgeholt oder endgültig gelöscht werden."
+            : "Alle Anfragen aus der Website und manuell erfasste Kontakte."
+        }
         action={
-          <Button asChild variant="brand" size="xl">
-            <Link href="/admin/crm/neu">
-              <Plus data-icon="inline-start" aria-hidden="true" />
-              Lead anlegen
-            </Link>
-          </Button>
+          archived ? (
+            <Button asChild variant="outline" size="xl">
+              <Link href="/admin/crm">
+                <ArrowLeft data-icon="inline-start" aria-hidden="true" />
+                Zurück zur Arbeitsliste
+              </Link>
+            </Button>
+          ) : (
+            <Button asChild variant="brand" size="xl">
+              <Link href="/admin/crm/neu">
+                <Plus data-icon="inline-start" aria-hidden="true" />
+                Lead anlegen
+              </Link>
+            </Button>
+          )
         }
       />
 
@@ -125,9 +144,27 @@ export default async function AdminCrmPage({
         <StatCard label="Neu" value={stats.byStatus.NEW} />
         <StatCard label="In Bearbeitung" value={stats.byStatus.IN_PROGRESS} />
         <StatCard label="Termine" value={stats.byStatus.APPOINTMENT} />
-        <StatCard label="Gewonnen" value={stats.byStatus.WON} />
-        <StatCard label="Verloren" value={stats.byStatus.LOST} />
+        {/* „Gewonnen/Verloren“ sagte einem Fahrzeughändler nichts. Was ein
+            Abschluss konkret ist, hängt am Anliegen – deshalb hier neutral
+            und am einzelnen Lead dann „Angekauft“ bzw. „Verkauft“. */}
+        <StatCard label="Erledigt" value={stats.byStatus.WON} />
+        <StatCard
+          label="Nicht zustande gekommen"
+          value={stats.byStatus.LOST}
+        />
       </div>
+
+      {/* Einstieg ins Archiv – nur sichtbar, wenn dort etwas liegt. */}
+      {!archived && stats.archived > 0 && (
+        <div className="mb-6 flex justify-end">
+          <Button asChild variant="outline" size="xl">
+            <Link href="/admin/crm?archiv=1">
+              <Archive data-icon="inline-start" aria-hidden="true" />
+              Archiv ansehen ({stats.archived})
+            </Link>
+          </Button>
+        </div>
+      )}
 
       <CrmFilters
         status={statusParam}
@@ -143,12 +180,18 @@ export default async function AdminCrmPage({
           <div className="py-12 text-center">
             <Users className="text-muted-foreground mx-auto size-9" aria-hidden="true" />
             <h2 className="font-display mt-4 text-lg font-bold">
-              {stats.total === 0 ? "Noch keine Leads" : "Keine Treffer"}
+              {archived
+                ? "Das Archiv ist leer"
+                : stats.total === 0
+                  ? "Noch keine Leads"
+                  : "Keine Treffer"}
             </h2>
             <p className="text-muted-foreground mx-auto mt-2 max-w-md text-sm leading-relaxed">
-              {stats.total === 0
-                ? "Sobald jemand ein Formular auf der Website absendet, erscheint der Kontakt hier."
-                : "Für diese Filter gibt es keine Leads. Setzen Sie die Filter zurück oder ändern Sie die Suche."}
+              {archived
+                ? "Erledigte Vorgänge, die Sie archivieren, erscheinen hier."
+                : stats.total === 0
+                  ? "Sobald jemand ein Formular auf der Website absendet, erscheint der Kontakt hier."
+                  : "Für diese Filter gibt es keine Leads. Setzen Sie die Filter zurück oder ändern Sie die Suche."}
             </p>
           </div>
         </AdminCard>
@@ -174,7 +217,7 @@ export default async function AdminCrmPage({
                     <Badge variant="secondary">
                       {CRM_LEAD_TYPE_LABELS[lead.type]}
                     </Badge>
-                    <StatusBadge status={lead.status} />
+                    <StatusBadge status={lead.status} type={lead.type} />
                     {lead.hasPurchaseInquiry && (
                       <Badge variant="secondary">mit Ankaufanfrage</Badge>
                     )}
@@ -212,15 +255,23 @@ export default async function AdminCrmPage({
               value: stats.byType[type],
             }))}
           />
+          {/*
+            * Warum hier fast immer nur „Website“ steht: Die Quelle beschreibt,
+            * wie ein LEAD entstanden ist. Ein Klick auf WhatsApp oder
+            * willhaben erzeugt bewusst keinen Lead – der zählt weiter unten
+            * unter „Website-Interaktionen“. Ohne diesen Hinweis wirkt die
+            * Aufstellung kaputt.
+            */}
           <Breakdown
             title="Nach Quelle"
+            note="Nur echte Anfragen. Formulare zählen als „Website“; die übrigen Quellen entstehen nur bei manuell angelegten Leads. Klicks auf WhatsApp oder willhaben stehen unten."
             entries={SOURCES.map((source) => ({
               label: CRM_LEAD_SOURCE_LABELS[source],
               value: stats.bySource[source],
             }))}
           />
           <Breakdown
-            title="Nach Status"
+            title="Nach Bearbeitungsstand"
             entries={STATUSES.map((status) => ({
               label: CRM_LEAD_STATUS_LABELS[status],
               value: stats.byStatus[status],
@@ -240,7 +291,7 @@ export default async function AdminCrmPage({
                 Statuskarte. Hier ist die Summe aller noch offenen Leads. */}
             <dt className="text-muted-foreground text-sm">
               Noch offen
-              <span className="block text-xs">alle außer gewonnen/verloren</span>
+              <span className="block text-xs">alles, was nicht abgeschlossen ist</span>
             </dt>
             <dd className="font-display tabular mt-0.5 text-xl font-bold">
               {stats.active}
@@ -249,7 +300,9 @@ export default async function AdminCrmPage({
           <div>
             <dt className="text-muted-foreground text-sm">
               Abschlussquote
-              <span className="block text-xs">gewonnen von abgeschlossen</span>
+              <span className="block text-xs">
+                erledigt von allen abgeschlossenen
+              </span>
             </dt>
             <dd className="font-display tabular mt-0.5 text-xl font-bold">
               {/* Ohne abgeschlossene Leads gibt es keine Quote – eine 0 %
@@ -325,7 +378,14 @@ function StatCard({ label, value }: { label: string; value: number }) {
   );
 }
 
-export function StatusBadge({ status }: { status: CrmLeadStatus }) {
+export function StatusBadge({
+  status,
+  type,
+}: {
+  status: CrmLeadStatus;
+  /** Ohne Anliegen bleibt es bei der allgemeinen Beschriftung. */
+  type?: CrmLeadType;
+}) {
   return (
     <Badge
       className={cn(
@@ -339,7 +399,7 @@ export function StatusBadge({ status }: { status: CrmLeadStatus }) {
           "bg-warning/15 text-warning-foreground",
       )}
     >
-      {CRM_LEAD_STATUS_LABELS[status]}
+      {type ? crmStatusLabel(status, type) : CRM_LEAD_STATUS_LABELS[status]}
     </Badge>
   );
 }
@@ -347,13 +407,21 @@ export function StatusBadge({ status }: { status: CrmLeadStatus }) {
 function Breakdown({
   title,
   entries,
+  note,
 }: {
   title: string;
   entries: { label: string; value: number }[];
+  /** Kurze Einordnung, wenn die Zahlen sonst missverstanden werden. */
+  note?: string;
 }) {
   return (
     <div>
       <h3 className="text-sm font-semibold">{title}</h3>
+      {note && (
+        <p className="text-muted-foreground mt-1 text-xs leading-relaxed">
+          {note}
+        </p>
+      )}
       <dl className="mt-2 space-y-1.5">
         {entries.map((entry) => (
           <div key={entry.label} className="flex justify-between gap-3 text-sm">

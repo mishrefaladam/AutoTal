@@ -213,10 +213,18 @@ model VehiclePurchaseInquiry {
   message               String @default("")
 
   // -- Bearbeitung ------------------------------------------------------------
+  /// ÜBERHOLT – wird nicht mehr gelesen und nicht mehr geschrieben.
+  ///
+  /// Bearbeitungsstand und Notiz stehen seit der Vereinheitlichung am
+  /// zugehörigen CrmLead. Zwei Statusfelder für denselben Vorgang liefen
+  /// auseinander: Wer im Ankauf auf „Angekauft“ stellte, sah im CRM weiter
+  /// „Neu“. Die Spalten bleiben vorerst erhalten, damit die bisherigen Werte
+  /// nicht verloren gehen; entfernt werden sie erst nach ausdrücklicher
+  /// Freigabe.
   status        PurchaseInquiryStatus @default(NEW)
   /// Woher die Anfrage kam, derzeit immer "website"
   source        String                @default("website")
-  /// Nur im Admin sichtbar
+  /// ÜBERHOLT – siehe `status`. Maßgeblich ist CrmLead.internalNotes.
   internalNotes String                @default("")
 
   /// Gegenstück zur Relation in CrmLead – erlaubt den Sprung von der Anfrage
@@ -540,14 +548,29 @@ model CrmLead {
   /// Wird gesetzt, wenn jemand den Kontakt dokumentiert
   lastContactAt DateTime?
 
+  /// Archiviert – erledigt und aus den Arbeitslisten genommen.
+  ///
+  /// Bewusst ein Zeitpunkt statt eines Ja/Nein-Flags: So ist nachvollziehbar,
+  /// wann etwas aus der Ansicht verschwunden ist. Archivierte Leads zählen
+  /// weder in den Listen noch in der Statistik mit, bleiben aber vollständig
+  /// erhalten und können zurückgeholt werden. Endgültiges Löschen ist ein
+  /// eigener, ausdrücklicher Schritt aus dem Archiv heraus.
+  archivedAt DateTime?
+
   /// Die zugehörige Ankaufanfrage, falls der Lead aus dem Ankaufformular
   /// stammt. Eins zu eins: Jede Anfrage erzeugt höchstens einen Lead.
+  ///
+  /// Seit der Vereinheitlichung ist der Lead die führende Zeile: Status und
+  /// interne Notiz stehen HIER, nicht mehr an der Anfrage. Die Anfrage hält
+  /// nur noch die Fahrzeugangaben des Kunden. Beide Ansichten im Admin
+  /// bearbeiten damit denselben Datensatz.
   purchaseInquiryId String?                 @unique
   purchaseInquiry   VehiclePurchaseInquiry? @relation(fields: [purchaseInquiryId], references: [id], onDelete: SetNull)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  @@index([archivedAt, createdAt])
   @@index([status, createdAt])
   @@index([type, createdAt])
   @@index([source, createdAt])

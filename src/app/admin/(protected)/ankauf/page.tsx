@@ -3,9 +3,7 @@ import { Inbox } from "lucide-react";
 
 import { AdminCard, AdminPageHeader } from "@/components/admin/admin-page-header";
 import { PurchaseInquiryRow } from "@/components/admin/purchase-inquiry-row";
-import {
-  PURCHASE_INQUIRY_CLOSED_STATUSES,
-} from "@/modules/purchase-inquiries/labels";
+import { CRM_LEAD_CLOSED_STATUSES } from "@/modules/crm/labels";
 import { listPurchaseInquiriesForAdmin } from "@/modules/purchase-inquiries/repository";
 import { formatDateTime } from "@/modules/vehicles/labels";
 
@@ -25,11 +23,13 @@ export const metadata: Metadata = { title: "Ankaufanfragen" };
 export default async function AdminPurchaseInquiriesPage() {
   const inquiries = await listPurchaseInquiriesForAdmin();
 
+  // Der Bearbeitungsstand kommt aus dem zugehörigen Lead – dieselbe Zeile,
+  // die auch das CRM zeigt.
   const open = inquiries.filter(
-    (inquiry) => !PURCHASE_INQUIRY_CLOSED_STATUSES.includes(inquiry.status),
+    (inquiry) => !CRM_LEAD_CLOSED_STATUSES.includes(inquiry.status),
   );
   const closed = inquiries.filter((inquiry) =>
-    PURCHASE_INQUIRY_CLOSED_STATUSES.includes(inquiry.status),
+    CRM_LEAD_CLOSED_STATUSES.includes(inquiry.status),
   );
 
   // Datum serverseitig formatieren: So sehen alle dieselbe Schreibweise,

@@ -27,6 +27,7 @@ export type CrmLeadListItem = {
   status: CrmLeadStatus;
   lastContactAt: Date | null;
   createdAt: Date;
+  archivedAt: Date | null;
   hasPurchaseInquiry: boolean;
 };
 
@@ -117,6 +118,13 @@ export type CrmLeadFilters = {
   periodDays?: number;
   /** Freitext über Name, Telefon und E-Mail. */
   search?: string;
+  /**
+   * true = nur archivierte Leads, false/undefiniert = nur aktive.
+   *
+   * Es gibt bewusst keine Ansicht mit beiden: Ein archivierter Lead soll in
+   * der Arbeitsliste nicht auftauchen, auch nicht mitgezählt.
+   */
+  archived?: boolean;
 };
 
 export async function listCrmLeads(
@@ -135,6 +143,7 @@ export async function listCrmLeads(
 
   const rows = await prisma.crmLead.findMany({
     where: {
+      archivedAt: filters.archived ? { not: null } : null,
       status: filters.status,
       type: filters.type,
       source: filters.source,
@@ -160,6 +169,7 @@ export async function listCrmLeads(
       status: true,
       lastContactAt: true,
       createdAt: true,
+      archivedAt: true,
       purchaseInquiryId: true,
     },
   });
@@ -184,8 +194,10 @@ export type CrmStatistics = {
   byType: Record<CrmLeadType, number>;
   bySource: Record<CrmLeadSource, number>;
   active: number;
-  /** Anteil gewonnener an abgeschlossenen Leads, oder null wenn keine. */
+  /** Anteil erledigter an abgeschlossenen Leads, oder null wenn keine. */
   conversionRate: number | null;
+  /** Wie viele Leads im Archiv liegen – für den Einstieg ins Archiv. */
+  archived: number;
 };
 
 /**
@@ -197,10 +209,27 @@ export type CrmStatistics = {
  * irreführenden Null.
  */
 export async function getCrmStatistics(): Promise<CrmStatistics> {
-  const [byStatusRows, byTypeRows, bySourceRows] = await Promise.all([
-    prisma.crmLead.groupBy({ by: ["status"], _count: { _all: true } }),
-    prisma.crmLead.groupBy({ by: ["type"], _count: { _all: true } }),
-    prisma.crmLead.groupBy({ by: ["source"], _count: { _all: true } }),
+  // Archivierte Leads zählen nirgends mit. Sonst bliebe ein erledigter
+  // Vorgang für immer in der Abschlussquote stehen.
+  const active = { archivedAt: null };
+
+  const [byStatusRows, byTypeRows, bySourceRows, archived] = await Promise.all([
+    prisma.crmLead.groupBy({
+      by: ["status"],
+      where: active,
+      _count: { _all: true },
+    }),
+    prisma.crmLead.groupBy({
+      by: ["type"],
+      where: active,
+      _count: { _all: true },
+    }),
+    prisma.crmLead.groupBy({
+      by: ["source"],
+      where: active,
+      _count: { _all: true },
+    }),
+    prisma.crmLead.count({ where: { archivedAt: { not: null } } }),
   ]);
 
   const byStatus = {
@@ -250,10 +279,66 @@ export async function getCrmStatistics(): Promise<CrmStatistics> {
       0,
     ),
     conversionRate: closed === 0 ? null : byStatus.WON / closed,
+    archived,
   };
 }
 
-/** Offene Leads – für den Zähler in der Navigation. */
+// ---------------------------------------------------------------------------
+// Archivieren und Löschen
+// ---------------------------------------------------------------------------
+
+/**
+ * Legt einen Lead ins Archiv oder holt ihn zurück.
+ *
+ * Archivieren ist der Regelfall für „erledigt“: Der Vorgang verschwindet aus
+ * Arbeitsliste und Statistik, bleibt aber vollständig erhalten. Damit ist ein
+ * versehentlicher Klick folgenlos.
+ */
+export async function setCrmLeadArchived(
+  id: string,
+  archived: boolean,
+  now: Date = new Date(),
+): Promise<void> {
+  await prisma.crmLead.update({
+    where: { id },
+    data: { archivedAt: archived ? now : null },
+  });
+}
+
+/**
+ * Löscht einen Lead endgültig – samt zugehöriger Ankaufsanfrage.
+ *
+ * Beide gehören zu EINEM Vorgang. Nur den Lead zu löschen würde die Anfrage
+ * verwaist zurücklassen: Sie stünde weiter unter „Ankaufsanfragen“, ohne
+ * Bearbeitungsstand und ohne Möglichkeit, einen zu setzen.
+ *
+ * Die Transaktion stellt sicher, dass entweder beides verschwindet oder
+ * nichts. Ein halb gelöschter Vorgang wäre schlimmer als ein gebliebener.
+ */
+export async function deleteCrmLead(
+  id: string,
+): Promise<{ deletedInquiry: boolean }> {
+  const lead = await prisma.crmLead.findUnique({
+    where: { id },
+    select: { purchaseInquiryId: true },
+  });
+
+  if (!lead) return { deletedInquiry: false };
+
+  await prisma.$transaction(async (tx) => {
+    await tx.crmLead.delete({ where: { id } });
+
+    if (lead.purchaseInquiryId) {
+      await tx.vehiclePurchaseInquiry.delete({
+        where: { id: lead.purchaseInquiryId },
+      });
+    }
+  });
+
+  return { deletedInquiry: lead.purchaseInquiryId !== null };
+}
+
+/** Offene Leads – für den Zähler in der Navigation. Ohne Archiv. */
 export async function countNewCrmLeads(): Promise<number> {
-  return prisma.crmLead.count({ where: { status: "NEW" } });
+  return prisma.crmLead.count({ where: { status: "NEW", archivedAt: null } });
 }
