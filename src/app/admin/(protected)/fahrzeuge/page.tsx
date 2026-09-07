@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import Image from "next/image";
 import Link from "next/link";
-import { Car, ImageOff, Plus } from "lucide-react";
+import { Car, ExternalLink, ImageOff, Plus } from "lucide-react";
 
 import { AdminCard, AdminPageHeader } from "@/components/admin/admin-page-header";
 import {
@@ -37,6 +37,15 @@ export const metadata: Metadata = { title: "Fahrzeuge" };
  * dem eingebetteten willhaben-Widget. Sie sind Datenbasis für Social Media
  * und die interne Bestandsführung.
  */
+
+/**
+ * Händler-Verwaltung von willhaben.
+ *
+ * Adresse aus der offiziellen Widget-Lite-Anleitung, Schaltfläche
+ * „Zum Händler-Admin“. Dort steht sie als http://; https liefert dieselbe
+ * Seite (http leitet mit 301 dorthin um), deshalb hier gleich https.
+ */
+const WILLHABEN_DEALER_ADMIN = "https://motornetzwerk.willhaben.at/";
 
 /** Erlaubte Werte des ?status=-Filters, klein geschrieben wie in der URL. */
 const STATUS_BY_PARAM: Record<string, VehicleStatus> = {
@@ -79,6 +88,32 @@ export default async function AdminVehiclesPage({
           </Button>
         }
       />
+
+      {/*
+       * Ordnet die beiden Listen zueinander ein. Ohne diesen Hinweis liegt
+       * die Annahme nahe, hier müsse der willhaben-Bestand auftauchen – er
+       * kommt aber ausschließlich aus dem eingebetteten Widget und ist für
+       * diese Anwendung nicht auslesbar.
+       */}
+      <div className="border-border bg-muted/40 mb-6 flex flex-wrap items-center justify-between gap-3 rounded-xl border p-4">
+        <p className="text-muted-foreground text-sm leading-relaxed">
+          Diese Liste ist die Datenbasis für Social-Media-Beiträge. Der
+          öffentliche Fahrzeugbestand auf der Website kommt direkt aus willhaben
+          und wird dort gepflegt.
+        </p>
+
+        <Button asChild variant="outline" size="xl" className="shrink-0">
+          <a
+            href={WILLHABEN_DEALER_ADMIN}
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            Bestand bei willhaben pflegen
+            <ExternalLink data-icon="inline-end" aria-hidden="true" />
+            <span className="sr-only"> (öffnet in neuem Tab)</span>
+          </a>
+        </Button>
+      </div>
 
       <VehicleOverview counts={counts} openInquiries={openInquiries} />
 
