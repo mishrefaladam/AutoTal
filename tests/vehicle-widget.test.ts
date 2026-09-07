@@ -141,12 +141,27 @@ describe("Es wurde nichts erfunden", () => {
     assert.ok(lite);
 
     const code = stripComments(lite.content);
-    const element = code.indexOf("<widget-lite");
+    const element = code.indexOf('document.createElement("widget-lite")');
+    const insert = code.indexOf("host.replaceChildren(widget)");
+    const ready = code.indexOf("setWidgetMounted(true)");
     const script = code.indexOf("<Script");
 
     assert.ok(element !== -1, "das Custom Element fehlt");
+    assert.ok(insert > element, "das Custom Element wird nicht eingesetzt");
+    assert.ok(ready > insert, "der Loader wird vor dem Element freigegeben");
     assert.ok(script !== -1, "der Script-Aufruf fehlt");
-    assert.ok(element < script, "das Script steht vor dem Element");
+    assert.match(code, /\{widgetMounted && \(\s*<Script/);
+  });
+
+  it("bewahrt die initialisierte Instanz über Clientnavigationen", () => {
+    const lite = sources.find((s) => s.file.endsWith("willhaben-lite.tsx"));
+    assert.ok(lite);
+
+    const code = stripComments(lite.content);
+    assert.match(code, /let persistentWidget:/);
+    assert.match(code, /document\.createDocumentFragment\(\)/);
+    assert.match(code, /widgetParkingLot\.appendChild\(widget\)/);
+    assert.match(code, /persistentWidget \?\? document\.createElement/);
   });
 
   it("verwendet kein dangerouslySetInnerHTML", () => {

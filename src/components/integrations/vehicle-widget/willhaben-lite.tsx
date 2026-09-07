@@ -1,6 +1,12 @@
+"use client";
+
 import Script from "next/script";
+import { useEffect, useRef, useState } from "react";
 
 import { LOADER_SRC } from "./willhaben-lite-config";
+
+let persistentWidget: HTMLElement | null = null;
+let widgetParkingLot: DocumentFragment | null = null;
 
 /**
  * willhaben „Carport Widget Lite“.
@@ -31,23 +37,59 @@ import { LOADER_SRC } from "./willhaben-lite-config";
  * Kennung und Status liegen in willhaben-lite-config.ts, damit die
  * Server-Komponente den Status abfragen kann, ohne diesen Client-Code zu
  * laden.
+ *
+ * Der Loader initialisiert nur die Elemente, die beim ersten Ausführen im DOM
+ * stehen. Bei einer Next.js-Clientnavigation wird das Script nicht erneut
+ * ausgeführt. Deshalb bleibt genau ein Widget-Element über Routenwechsel
+ * erhalten: Beim Verlassen wird es in ein DocumentFragment verschoben und
+ * beim Zurückkehren wieder in den sichtbaren Host eingesetzt.
  */
 export function WillhabenLiteEmbed() {
+  const hostRef = useRef<HTMLDivElement>(null);
+  const [widgetMounted, setWidgetMounted] = useState(false);
+
+  useEffect(() => {
+    const host = hostRef.current;
+    if (!host) return;
+
+    const widget = persistentWidget ?? document.createElement("widget-lite");
+    persistentWidget = widget;
+
+    // Das Element muss im DOM stehen, bevor Next den Loader einsetzt.
+    host.replaceChildren(widget);
+    setWidgetMounted(true);
+
+    const resizeFrame = window.requestAnimationFrame(() => {
+      // Das erhaltene Widget darf seine Breite nach dem Wiedereinsetzen neu
+      // berechnen. Der Drittanbieter lauscht bereits auf dieses Ereignis.
+      window.dispatchEvent(new Event("resize"));
+    });
+
+    return () => {
+      window.cancelAnimationFrame(resizeFrame);
+
+      if (widget.parentNode === host) {
+        widgetParkingLot ??= document.createDocumentFragment();
+        widgetParkingLot.appendChild(widget);
+      }
+    };
+  }, []);
+
   return (
     <>
-      {/* Einhängepunkt. Muss vor dem Script stehen – siehe oben. */}
-      <widget-lite />
+      <div ref={hostRef} className="w-full" data-willhaben-widget-host />
 
       {/*
-       * `afterInteractive` lädt den Loader, sobald die Seite bedienbar ist:
-       * früh genug, dass der Bestand ohne spürbare Verzögerung erscheint,
-       * ohne das erste Rendern zu blockieren. Zu diesem Zeitpunkt steht das
-       * Element bereits im DOM.
+       * `widgetMounted` wird erst gesetzt, nachdem das Element in den Host
+       * eingesetzt wurde. Damit bleibt die von willhaben verlangte Reihenfolge
+       * auch bei Hydration und Clientnavigation garantiert.
        *
-       * Kein `dangerouslySetInnerHTML` – das Markup ist gewöhnliches JSX,
-       * das Script lädt Next.js selbst.
+       * Next.js lädt dieselbe Script-URL pro Browser-Sitzung nur einmal. Das
+       * passt zum langlebigen Widget-Element und verhindert doppelte Instanzen.
        */}
-      <Script src={LOADER_SRC} strategy="afterInteractive" />
+      {widgetMounted && (
+        <Script src={LOADER_SRC} strategy="afterInteractive" />
+      )}
     </>
   );
 }
