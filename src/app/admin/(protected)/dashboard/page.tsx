@@ -50,7 +50,12 @@ export default async function AdminDashboardPage() {
     {
       label: "E-Mail-Versand (Resend)",
       ready: isResendConfigured(),
-      hint: "Ohne Einrichtung können Formulare keine Anfragen zustellen.",
+      // Wird nur angezeigt, solange der Dienst nicht eingerichtet ist. Der
+      // Hinweis muss deshalb sagen, was dann ausfällt – und was trotzdem
+      // funktioniert: Anfragen gehen nicht verloren, nur die Benachrichtigung.
+      hint:
+        "Anfragen werden im Admin gespeichert. Ohne E-Mail-Einrichtung " +
+        "werden jedoch keine E-Mail-Benachrichtigungen versendet.",
       href: "/admin/integrationen",
     },
     {

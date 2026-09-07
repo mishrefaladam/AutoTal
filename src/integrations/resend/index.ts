@@ -13,10 +13,25 @@ import { UserFacingError } from "@/lib/result";
  * wird nur aus Server Actions aufgerufen. Es gibt keinen Pfad, über den der
  * Key in ein Client-Bundle geraten könnte.
  *
- * Ohne konfigurierten Key läuft der Versand im Dry-Run: Die Nachricht wird
- * geloggt, aber es wird ausdrücklich KEIN Erfolg gemeldet. Ein Kontaktformular,
- * das "Danke, wir melden uns!" sagt, während die Mail nirgends ankommt, ist
- * schlimmer als eine ehrliche Fehlermeldung (US-29).
+ * Die E-Mail ist eine BENACHRICHTIGUNG, nicht die Zustellung. Kontakt- und
+ * Ankaufanfragen werden zuerst in der Datenbank gespeichert (CrmLead, bei
+ * Ankauf zusätzlich VehiclePurchaseInquiry) und sind im Admin sichtbar. Erst
+ * danach wird versucht, das Postfach zu benachrichtigen.
+ *
+ * Daraus folgt, wie hier mit Fehlern umzugehen ist:
+ *
+ *   - Ist Resend nicht eingerichtet oder gerade gestört, wirft `sendMail` einen
+ *     UserFacingError. Die aufrufenden Server Actions fangen ihn ab und
+ *     protokollieren ihn, statt ihn an den Kunden weiterzureichen.
+ *   - Denn eine bereits gespeicherte Anfrage darf dem Kunden NICHT als
+ *     fehlgeschlagen dargestellt werden. Er würde sie sonst erneut abschicken,
+ *     obwohl sie längst im Admin liegt.
+ *   - Umgekehrt gilt: Fehlt die Benachrichtigung, erfährt AutoTal von der
+ *     Anfrage nur beim Blick in den Admin. Deshalb wird jeder Fehlschlag
+ *     geloggt und der Zustand im Dashboard als "nicht bereit" angezeigt.
+ *
+ * Geloggt werden dabei nur Formularname und Betreff – der Inhalt enthält
+ * personenbezogene Daten und bleibt bewusst außen vor.
  */
 
 let client: Resend | null = null;
