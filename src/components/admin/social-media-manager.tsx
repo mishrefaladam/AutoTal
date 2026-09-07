@@ -1,6 +1,7 @@
 "use client";
 
 import Image from "next/image";
+import Link from "next/link";
 import { useState, useTransition } from "react";
 import {
   Check,
@@ -8,6 +9,7 @@ import {
   ExternalLink,
   Loader2,
   Pencil,
+  Plus,
   RotateCcw,
   Send,
   Sparkles,
@@ -127,21 +129,45 @@ export function SocialMediaManager({
               className="text-warning mt-0.5 size-4 shrink-0"
               aria-hidden="true"
             />
+            {/*
+             * Nur die Textvorschläge hängen am Schlüssel. Der Hinweis sagt das
+             * ausdrücklich, damit niemand die ganze Seite für kaputt hält.
+             */}
             <p className="leading-relaxed">
-              Die KI-Funktion ist nicht eingerichtet. Hinterlegen Sie{" "}
+              Die KI-Textvorschläge sind nicht eingerichtet. Hinterlegen Sie{" "}
               <code className="bg-background rounded px-1 py-0.5 text-xs">
                 OPENAI_API_KEY
               </code>{" "}
-              in den Umgebungsvariablen, um Textvorschläge zu erzeugen.
+              in den Umgebungsvariablen, um Texte erzeugen zu lassen. Bestehende
+              Beiträge können Sie weiterhin bearbeiten, freigeben und
+              veröffentlichen.
             </p>
           </div>
         )}
 
         {vehicles.length === 0 ? (
-          <p className="text-muted-foreground text-sm">
-            Es sind keine aktiven Fahrzeuge im Bestand. Führen Sie zuerst eine
-            Fahrzeugsynchronisierung durch.
-          </p>
+          /*
+           * Hier stand früher der Hinweis auf eine Fahrzeugsynchronisierung.
+           * Die gibt es nicht: Der öffentliche Bestand kommt aus dem
+           * willhaben-Widget und befüllt diese Datenbank nicht. Fahrzeuge für
+           * Beiträge werden im Admin angelegt.
+           */
+          <div className="border-border rounded-xl border border-dashed py-12 text-center">
+            <p className="text-sm leading-relaxed font-medium">
+              Es sind noch keine Fahrzeuge für Social-Media-Beiträge hinterlegt.
+            </p>
+            <p className="text-muted-foreground mx-auto mt-2 max-w-md text-sm leading-relaxed">
+              Legen Sie zuerst ein Fahrzeug im Adminbereich an. Der öffentliche
+              Fahrzeugbestand auf der Website kommt aus willhaben und steht hier
+              nicht zur Verfügung.
+            </p>
+            <Button asChild variant="brand" size="xl" className="mt-6">
+              <Link href="/admin/fahrzeuge/neu">
+                <Plus data-icon="inline-start" aria-hidden="true" />
+                Fahrzeug anlegen
+              </Link>
+            </Button>
+          </div>
         ) : (
           <div className="flex flex-col gap-4 sm:flex-row sm:items-end">
             <div className="flex-1 space-y-2">
