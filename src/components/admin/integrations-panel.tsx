@@ -161,6 +161,57 @@ export function IntegrationsPanel({
               </p>
             </div>
           </div>
+        ) : instagram.requiresReconnect ? (
+          <div className="space-y-4">
+            <div className="border-warning/40 bg-warning/10 flex gap-3 rounded-lg border p-4 text-sm">
+              <TriangleAlert
+                className="text-warning mt-0.5 size-5 shrink-0"
+                aria-hidden="true"
+              />
+              <div className="leading-relaxed">
+                <p className="font-medium">Neu verbinden erforderlich</p>
+                <p className="text-muted-foreground mt-1">
+                  {instagram.tokenStatus === "legacy"
+                    ? "Die gespeicherte Verbindung verwendet den früheren Anmeldeweg und kann nicht weiterverwendet werden."
+                    : "Der gespeicherte Instagram-Zugang ist abgelaufen."}
+                </p>
+                {instagram.username && (
+                  <p className="text-muted-foreground mt-1 text-xs">
+                    Bisher verbunden: @{instagram.username}
+                  </p>
+                )}
+              </div>
+            </div>
+
+            <div className="flex flex-wrap gap-3">
+              <Button
+                variant="brand"
+                size="2xl"
+                onClick={handleConnect}
+                disabled={pending}
+              >
+                {pending ? (
+                  <Loader2
+                    data-icon="inline-start"
+                    className="animate-spin"
+                    aria-hidden="true"
+                  />
+                ) : (
+                  <Link2 data-icon="inline-start" aria-hidden="true" />
+                )}
+                Neu verbinden
+              </Button>
+              <Button
+                variant="outline"
+                size="2xl"
+                onClick={handleDisconnect}
+                disabled={pending}
+              >
+                <Unlink data-icon="inline-start" aria-hidden="true" />
+                Verbindung trennen
+              </Button>
+            </div>
+          </div>
         ) : instagram.connected ? (
           <div className="space-y-4">
             <div className="border-success/30 bg-success/8 flex flex-wrap items-center justify-between gap-4 rounded-lg border p-4">
@@ -170,11 +221,21 @@ export function IntegrationsPanel({
                   aria-hidden="true"
                 />
                 <div>
-                  <p className="font-medium">
-                    {instagram.username
-                      ? `@${instagram.username}`
-                      : "Konto verbunden"}
-                  </p>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <p className="font-medium">
+                      {instagram.username
+                        ? `@${instagram.username}`
+                        : "Instagram-Konto"}
+                    </p>
+                    <Badge className="bg-success/12 text-success border-transparent">
+                      Verbunden
+                    </Badge>
+                  </div>
+                  {instagram.connectedAt && (
+                    <p className="text-muted-foreground mt-1 text-xs">
+                      Verbunden seit {formatDateTime(instagram.connectedAt)}
+                    </p>
+                  )}
                   <p className="text-muted-foreground text-xs">
                     {instagram.expiresAt
                       ? `Zugang gültig bis ${formatDateTime(instagram.expiresAt)}`
@@ -198,9 +259,8 @@ export function IntegrationsPanel({
               <p className="border-warning/40 bg-warning/10 flex gap-2.5 rounded-lg border p-3.5 text-sm leading-relaxed">
                 <TriangleAlert className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
                 <span>
-                  Der Zugang läuft in weniger als sieben Tagen ab. Verbinden Sie
-                  das Konto rechtzeitig neu, sonst schlagen Veröffentlichungen
-                  fehl.
+                  Der Zugang läuft bald ab und konnte noch nicht automatisch
+                  erneuert werden. Verbinden Sie das Konto vorsorglich neu.
                 </span>
               </p>
             )}
@@ -209,10 +269,9 @@ export function IntegrationsPanel({
           <div className="space-y-4">
             <p className="text-muted-foreground text-sm leading-relaxed">
               Es ist noch kein Konto verbunden. Für die Veröffentlichung wird
-              ein Instagram-<strong>Business</strong>- oder Creator-Konto
-              benötigt, das mit einer Facebook-Seite verknüpft ist. Für
-              Privatkonten stellt Meta keine Veröffentlichungs-Schnittstelle
-              bereit.
+              ein professionelles Instagram-Konto vom Typ{" "}
+              <strong>Business</strong> oder Creator benötigt. Für Privatkonten
+              stellt Instagram keine Veröffentlichungs-Schnittstelle bereit.
             </p>
 
             <Button
@@ -230,12 +289,12 @@ export function IntegrationsPanel({
               ) : (
                 <Link2 data-icon="inline-start" aria-hidden="true" />
               )}
-              Instagram-Konto verbinden
+              Instagram verbinden
             </Button>
 
             <p className="text-muted-foreground flex gap-2 text-xs">
               <ExternalLink className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
-              Sie werden zu Facebook weitergeleitet und danach hierher
+              Sie werden zu Instagram weitergeleitet und danach hierher
               zurückgeführt.
             </p>
           </div>

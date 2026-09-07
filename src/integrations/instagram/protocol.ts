@@ -1,0 +1,466 @@
+import "server-only";
+
+import { logger } from "@/lib/logger";
+import { UserFacingError } from "@/lib/result";
+
+/**
+ * Zentrale Protokollkonfiguration fuer die Instagram API mit Instagram Login.
+ * Die Version wird absichtlich nur hier festgelegt.
+ */
+export const INSTAGRAM_GRAPH_API_VERSION = "v26.0";
+
+export const INSTAGRAM_REQUIRED_SCOPES = [
+  "instagram_business_basic",
+  "instagram_business_content_publish",
+] as const;
+
+const INSTAGRAM_OAUTH_URL = "https://www.instagram.com/oauth/authorize";
+const INSTAGRAM_CODE_TOKEN_URL = "https://api.instagram.com/oauth/access_token";
+const INSTAGRAM_TOKEN_BASE_URL = "https://graph.instagram.com";
+const INSTAGRAM_GRAPH_BASE_URL =
+  `${INSTAGRAM_TOKEN_BASE_URL}/${INSTAGRAM_GRAPH_API_VERSION}`;
+
+type Fetcher = typeof fetch;
+
+export type InstagramApiConfig = {
+  appId: string;
+  appSecret: string;
+  redirectUri: string;
+};
+
+type OptionalInstagramApiConfig = {
+  appId?: string;
+  appSecret?: string;
+  redirectUri?: string;
+};
+
+type InstagramErrorBody = {
+  error?: {
+    code?: number;
+    error_subcode?: number;
+  };
+  code?: number;
+  error_type?: string;
+};
+
+export type InstagramProfile = {
+  userId: string;
+  username: string;
+};
+
+export type InstagramPublishingLimit = {
+  usage: number;
+  total: number;
+  durationSeconds: number | null;
+};
+
+export function requireInstagramApiConfig(
+  input: OptionalInstagramApiConfig,
+): InstagramApiConfig {
+  if (!input.appId || !input.appSecret || !input.redirectUri) {
+    throw new UserFacingError(
+      "Die Instagram-Integration ist nicht eingerichtet. Bitte hinterlegen " +
+        "Sie INSTAGRAM_APP_ID, INSTAGRAM_APP_SECRET und INSTAGRAM_REDIRECT_URI.",
+      "NOT_CONFIGURED",
+    );
+  }
+
+  return {
+    appId: input.appId,
+    appSecret: input.appSecret,
+    redirectUri: input.redirectUri,
+  };
+}
+
+export function hasRequiredInstagramScopes(scopes: readonly string[]): boolean {
+  return INSTAGRAM_REQUIRED_SCOPES.every((scope) => scopes.includes(scope));
+}
+
+export function buildInstagramAuthorizationUrl(
+  config: InstagramApiConfig,
+  state: string,
+): string {
+  const url = new URL(INSTAGRAM_OAUTH_URL);
+  url.searchParams.set("client_id", config.appId);
+  url.searchParams.set("redirect_uri", config.redirectUri);
+  url.searchParams.set("response_type", "code");
+  url.searchParams.set("scope", INSTAGRAM_REQUIRED_SCOPES.join(","));
+  url.searchParams.set("state", state);
+  // Der Kunde meldet sich ausschliesslich mit seinem Instagram-Konto an.
+  url.searchParams.set("enable_fb_login", "0");
+
+  return url.toString();
+}
+
+function apiErrorCode(body: InstagramErrorBody): number | undefined {
+  return body.error?.code ?? body.code;
+}
+
+function toUserFacingInstagramError(
+  status: number,
+  body: InstagramErrorBody,
+): UserFacingError {
+  const code = apiErrorCode(body);
+
+  if (status === 401 || code === 190) {
+    return new UserFacingError(
+      "Der Instagram-Zugang wurde abgelehnt oder ist abgelaufen. Bitte " +
+        "verbinden Sie das Konto unter \u201eIntegrationen\u201c erneut.",
+      "UNAUTHORIZED",
+    );
+  }
+
+  if (status === 429 || code === 4 || code === 32) {
+    return new UserFacingError(
+      "Instagram hat das aktuelle Veröffentlichungslimit erreicht. Bitte " +
+        "versuchen Sie es später erneut.",
+      "RATE_LIMITED",
+    );
+  }
+
+  if (code === 9004 || code === 2207052) {
+    return new UserFacingError(
+      "Instagram konnte das Bild nicht laden. Es muss unter einer öffentlich " +
+        "erreichbaren Adresse liegen, im Format JPEG vorliegen und darf " +
+        "höchstens 8 MB groß sein.",
+      "SERVICE_UNAVAILABLE",
+    );
+  }
+
+  if (status >= 500) {
+    return new UserFacingError(
+      "Instagram ist derzeit nicht erreichbar. Bitte versuchen Sie es in ein " +
+        "paar Minuten erneut.",
+      "SERVICE_UNAVAILABLE",
+    );
+  }
+
+  return new UserFacingError(
+    "Instagram hat die Anfrage abgelehnt. Bitte prüfen Sie die Verbindung " +
+      "unter \u201eIntegrationen\u201c und versuchen Sie es erneut.",
+    "SERVICE_UNAVAILABLE",
+  );
+}
+
+async function requestJson<T>(
+  url: URL,
+  init: RequestInit,
+  operation: string,
+  fetcher: Fetcher,
+): Promise<T> {
+  let response: Response;
+
+  try {
+    response = await fetcher(url, {
+      ...init,
+      signal: init.signal ?? AbortSignal.timeout(30_000),
+    });
+  } catch (error) {
+    logger.error("Instagram-Anfrage fehlgeschlagen", {
+      operation,
+      errorType: error instanceof Error ? error.name : "UnknownError",
+    });
+    throw new UserFacingError(
+      "Instagram konnte nicht erreicht werden. Bitte versuchen Sie es erneut.",
+      "SERVICE_UNAVAILABLE",
+    );
+  }
+
+  const body = (await response.json().catch(() => ({}))) as InstagramErrorBody;
+
+  if (!response.ok) {
+    // Keine URLs, Bodies oder Header loggen: Sie koennen Tokens enthalten.
+    logger.error("Instagram-API hat einen Fehler gemeldet", {
+      operation,
+      status: response.status,
+      apiCode: apiErrorCode(body),
+      errorType: body.error_type,
+    });
+    throw toUserFacingInstagramError(response.status, body);
+  }
+
+  return body as T;
+}
+
+async function graphRequest<T>(
+  path: string,
+  accessToken: string,
+  params: Record<string, string> = {},
+  method: "GET" | "POST" = "GET",
+  fetcher: Fetcher = fetch,
+): Promise<T> {
+  const url = new URL(`${INSTAGRAM_GRAPH_BASE_URL}${path}`);
+  const init: RequestInit = {
+    method,
+    headers: { Authorization: `Bearer ${accessToken}` },
+  };
+
+  if (method === "GET") {
+    for (const [key, value] of Object.entries(params)) {
+      url.searchParams.set(key, value);
+    }
+  } else {
+    init.body = new URLSearchParams(params);
+  }
+
+  return requestJson<T>(url, init, `${method} ${path}`, fetcher);
+}
+
+function normalizeScopes(value: unknown): string[] {
+  if (Array.isArray(value)) {
+    return value.filter((scope): scope is string => typeof scope === "string");
+  }
+
+  if (typeof value === "string") {
+    return value
+      .split(",")
+      .map((scope) => scope.trim())
+      .filter(Boolean);
+  }
+
+  return [];
+}
+
+/** Tauscht den Callback-Code gegen ein kurzlebiges Instagram-Token. */
+export async function exchangeInstagramAuthorizationCode(
+  config: InstagramApiConfig,
+  code: string,
+  fetcher: Fetcher = fetch,
+): Promise<{ accessToken: string; userId: string; scopes: string[] }> {
+  const form = new FormData();
+  form.set("client_id", config.appId);
+  form.set("client_secret", config.appSecret);
+  form.set("grant_type", "authorization_code");
+  form.set("redirect_uri", config.redirectUri);
+  form.set("code", code);
+
+  type AuthorizationToken = {
+    access_token?: string;
+    user_id?: string | number;
+    permissions?: string | string[];
+  };
+
+  const response = await requestJson<
+    AuthorizationToken & { data?: AuthorizationToken[] }
+  >(
+    new URL(INSTAGRAM_CODE_TOKEN_URL),
+    { method: "POST", body: form },
+    "POST authorization code exchange",
+    fetcher,
+  );
+
+  // Business Login liefert den Token dokumentiert in data[0]. Das
+  // Top-Level-Format bleibt als toleranter Fallback erhalten.
+  const token = response.data?.[0] ?? response;
+  const scopes = normalizeScopes(token.permissions);
+
+  if (!token.access_token || token.user_id === undefined) {
+    throw new UserFacingError(
+      "Instagram hat keine vollständigen Zugangsdaten zurückgegeben. Bitte " +
+        "starten Sie die Verbindung erneut.",
+      "SERVICE_UNAVAILABLE",
+    );
+  }
+
+  if (!hasRequiredInstagramScopes(scopes)) {
+    throw new UserFacingError(
+      "Die benötigten Instagram-Berechtigungen wurden nicht vollständig " +
+        "erteilt. Bitte starten Sie die Verbindung erneut und bestätigen Sie " +
+        "beide Berechtigungen.",
+      "UNAUTHORIZED",
+    );
+  }
+
+  return {
+    accessToken: token.access_token,
+    userId: String(token.user_id),
+    scopes,
+  };
+}
+
+/** Tauscht ein kurzlebiges gegen ein rund 60 Tage gültiges Token. */
+export async function exchangeInstagramLongLivedToken(
+  appSecret: string,
+  shortLivedAccessToken: string,
+  fetcher: Fetcher = fetch,
+): Promise<{ accessToken: string; expiresIn: number }> {
+  const url = new URL(`${INSTAGRAM_TOKEN_BASE_URL}/access_token`);
+  url.searchParams.set("grant_type", "ig_exchange_token");
+  url.searchParams.set("client_secret", appSecret);
+  url.searchParams.set("access_token", shortLivedAccessToken);
+
+  const response = await requestJson<{
+    access_token?: string;
+    expires_in?: number;
+  }>(url, { method: "GET" }, "GET long-lived token exchange", fetcher);
+
+  if (!response.access_token || !response.expires_in) {
+    throw new UserFacingError(
+      "Instagram hat kein gültiges langlebiges Zugangstoken zurückgegeben. " +
+        "Bitte starten Sie die Verbindung erneut.",
+      "SERVICE_UNAVAILABLE",
+    );
+  }
+
+  return {
+    accessToken: response.access_token,
+    expiresIn: response.expires_in,
+  };
+}
+
+/** Verlängert ein gültiges, mindestens 24 Stunden altes Long-Lived Token. */
+export async function refreshInstagramLongLivedToken(
+  accessToken: string,
+  fetcher: Fetcher = fetch,
+): Promise<{ accessToken: string; expiresIn: number }> {
+  const url = new URL(`${INSTAGRAM_TOKEN_BASE_URL}/refresh_access_token`);
+  url.searchParams.set("grant_type", "ig_refresh_token");
+  url.searchParams.set("access_token", accessToken);
+
+  const response = await requestJson<{
+    access_token?: string;
+    expires_in?: number;
+  }>(url, { method: "GET" }, "GET long-lived token refresh", fetcher);
+
+  if (!response.access_token || !response.expires_in) {
+    throw new UserFacingError(
+      "Instagram hat das Zugangstoken nicht erneuert. Bitte verbinden Sie das " +
+        "Konto unter \u201eIntegrationen\u201c erneut.",
+      "UNAUTHORIZED",
+    );
+  }
+
+  return {
+    accessToken: response.access_token,
+    expiresIn: response.expires_in,
+  };
+}
+
+/** Ermittelt die ID und den Benutzernamen direkt aus dem Instagram-Token. */
+export async function getInstagramProfile(
+  accessToken: string,
+  fetcher: Fetcher = fetch,
+): Promise<InstagramProfile> {
+  const response = await graphRequest<{
+    user_id?: string | number;
+    id?: string | number;
+    username?: string;
+    data?: Array<{
+      user_id?: string | number;
+      id?: string | number;
+      username?: string;
+    }>;
+  }>("/me", accessToken, { fields: "user_id,username" }, "GET", fetcher);
+
+  // Meta dokumentiert je nach Endpoint-Darstellung Objekt und data-Liste.
+  const profile = response.data?.[0] ?? response;
+  const userId = profile.user_id ?? profile.id;
+
+  if (userId === undefined || !profile.username) {
+    throw new UserFacingError(
+      "Instagram konnte den Professional Account nicht eindeutig ermitteln. " +
+        "Bitte prüfen Sie den Kontotyp und verbinden Sie das Konto erneut.",
+      "NOT_CONFIGURED",
+    );
+  }
+
+  return { userId: String(userId), username: profile.username };
+}
+
+/** Liest das aktuelle, kontospezifische Publishing-Limit. */
+export async function getInstagramPublishingLimit(
+  accountId: string,
+  accessToken: string,
+  fetcher: Fetcher = fetch,
+): Promise<InstagramPublishingLimit | null> {
+  const response = await graphRequest<{
+    quota_usage?: number;
+    config?: { quota_total?: number; quota_duration?: number };
+    data?: Array<{
+      quota_usage?: number;
+      config?: { quota_total?: number; quota_duration?: number };
+    }>;
+  }>(
+    `/${accountId}/content_publishing_limit`,
+    accessToken,
+    { fields: "quota_usage,config" },
+    "GET",
+    fetcher,
+  );
+
+  const limit = response.data?.[0] ?? response;
+  const usage = limit.quota_usage;
+  const total = limit.config?.quota_total;
+
+  if (typeof usage !== "number" || typeof total !== "number") return null;
+
+  return {
+    usage,
+    total,
+    durationSeconds: limit.config?.quota_duration ?? null,
+  };
+}
+
+export async function createInstagramImageContainer(
+  accountId: string,
+  accessToken: string,
+  input: { imageUrl: string; caption: string },
+  fetcher: Fetcher = fetch,
+): Promise<string> {
+  const response = await graphRequest<{ id?: string }>(
+    `/${accountId}/media`,
+    accessToken,
+    { image_url: input.imageUrl, caption: input.caption },
+    "POST",
+    fetcher,
+  );
+
+  if (!response.id) {
+    throw new UserFacingError(
+      "Instagram hat keinen Medien-Container erstellt.",
+      "SERVICE_UNAVAILABLE",
+    );
+  }
+
+  return response.id;
+}
+
+export async function publishInstagramImageContainer(
+  accountId: string,
+  accessToken: string,
+  containerId: string,
+  fetcher: Fetcher = fetch,
+): Promise<string> {
+  const response = await graphRequest<{ id?: string }>(
+    `/${accountId}/media_publish`,
+    accessToken,
+    { creation_id: containerId },
+    "POST",
+    fetcher,
+  );
+
+  if (!response.id) {
+    throw new UserFacingError(
+      "Instagram hat den Beitrag nicht veröffentlicht.",
+      "SERVICE_UNAVAILABLE",
+    );
+  }
+
+  return response.id;
+}
+
+export async function getInstagramMediaPermalink(
+  mediaId: string,
+  accessToken: string,
+  fetcher: Fetcher = fetch,
+): Promise<string | null> {
+  const response = await graphRequest<{ permalink?: string }>(
+    `/${mediaId}`,
+    accessToken,
+    { fields: "permalink" },
+    "GET",
+    fetcher,
+  );
+
+  return response.permalink ?? null;
+}

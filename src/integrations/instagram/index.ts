@@ -1,88 +1,243 @@
 import "server-only";
 
-import { env, isInstagramConfigured } from "@/lib/env";
 import { decryptSecret, encryptSecret } from "@/lib/crypto";
+import { env } from "@/lib/env";
 import { logger } from "@/lib/logger";
 import { prisma } from "@/lib/prisma";
 import { UserFacingError } from "@/lib/result";
 
+import {
+  buildInstagramAuthorizationUrl,
+  createInstagramImageContainer,
+  exchangeInstagramAuthorizationCode,
+  exchangeInstagramLongLivedToken,
+  getInstagramMediaPermalink,
+  getInstagramProfile,
+  getInstagramPublishingLimit,
+  hasRequiredInstagramScopes,
+  publishInstagramImageContainer,
+  refreshInstagramLongLivedToken,
+  requireInstagramApiConfig,
+} from "./protocol";
+
 /**
- * Instagram-Veröffentlichung über die Meta Graph API (EPIC 8).
+ * Instagram API mit Instagram Login.
  *
- * Voraussetzung ist ein Instagram-*Business*- oder *Creator*-Konto, das mit
- * einer Facebook-Seite verknüpft ist. Für Privatkonten gibt es keine
- * Veröffentlichungs-API – das ist eine Einschränkung von Meta, keine der
- * Anwendung.
+ * Ein professionelles Instagram-Konto (Business oder Creator) wird direkt
+ * verbunden. Eine Facebook-Seite ist fuer diesen Flow nicht erforderlich.
+ * Tokens bleiben ausschliesslich serverseitig und AES-256-GCM-verschluesselt.
  *
- * Ablauf beim Veröffentlichen (zweistufig, so schreibt es Meta vor):
- *   1. Medien-Container anlegen (Bild-URL + Bildunterschrift)
- *   2. Container veröffentlichen
- *
- * Das Bild muss unter einer öffentlich erreichbaren URL liegen – Meta lädt es
- * selbst herunter. Uploads vom Server werden nicht unterstützt.
- *
- * Tokens liegen ausschließlich serverseitig und verschlüsselt in der
- * Datenbank (siehe src/lib/crypto.ts). Sie werden nie an den Client geliefert.
+ * Publishing bleibt zweistufig: Medien-Container anlegen und danach
+ * veroeffentlichen. Meta muss das Bild ueber eine oeffentliche URL laden
+ * koennen. Aktuell wird bewusst nur ein Bild veroeffentlicht; Instagram
+ * Carousel / mehrere Bilder sind noch nicht implementiert.
  */
 
-const GRAPH_API_VERSION = "v21.0";
-const GRAPH_BASE_URL = `https://graph.facebook.com/${GRAPH_API_VERSION}`;
 const PROVIDER = "instagram";
+const REFRESH_WINDOW_MS = 14 * 24 * 60 * 60 * 1000;
+const MINIMUM_REFRESH_AGE_MS = 24 * 60 * 60 * 1000;
+
+export type InstagramTokenStatus =
+  | "missing"
+  | "valid"
+  | "expiring"
+  | "expired"
+  | "legacy";
 
 export type InstagramConnection = {
   connected: boolean;
+  requiresReconnect: boolean;
   username: string | null;
   accountId: string | null;
+  connectedAt: Date | null;
   expiresAt: Date | null;
+  tokenStatus: InstagramTokenStatus;
   /** true, wenn das Token in weniger als sieben Tagen abläuft. */
   expiringSoon: boolean;
 };
 
-/** Verbindungsstatus für die Anzeige im Admin – ohne das Token selbst. */
-export async function getInstagramConnection(): Promise<InstagramConnection> {
-  const credential = await prisma.integrationCredential.findUnique({
-    where: { provider: PROVIDER },
-    select: {
-      externalAccountId: true,
-      externalUsername: true,
-      expiresAt: true,
-      active: true,
-    },
-  });
+type StoredCredential = {
+  id: string;
+  accessTokenEncrypted: string;
+  externalAccountId: string | null;
+  externalUsername: string | null;
+  scopes: string[];
+  expiresAt: Date | null;
+  connectedAt: Date;
+  active: boolean;
+  updatedAt: Date;
+};
 
-  if (!credential || !credential.active) {
+const credentialSelect = {
+  id: true,
+  accessTokenEncrypted: true,
+  externalAccountId: true,
+  externalUsername: true,
+  scopes: true,
+  expiresAt: true,
+  connectedAt: true,
+  active: true,
+  updatedAt: true,
+} as const;
+
+function instagramConfig() {
+  const config = env();
+  return requireInstagramApiConfig({
+    appId: config.INSTAGRAM_APP_ID,
+    appSecret: config.INSTAGRAM_APP_SECRET,
+    redirectUri: config.INSTAGRAM_REDIRECT_URI,
+  });
+}
+
+function emptyConnection(): InstagramConnection {
+  return {
+    connected: false,
+    requiresReconnect: false,
+    username: null,
+    accountId: null,
+    connectedAt: null,
+    expiresAt: null,
+    tokenStatus: "missing",
+    expiringSoon: false,
+  };
+}
+
+function connectionFromCredential(
+  credential: StoredCredential,
+  now = new Date(),
+): InstagramConnection {
+  const base = {
+    username: credential.externalUsername,
+    accountId: credential.externalAccountId,
+    connectedAt: credential.connectedAt,
+    expiresAt: credential.expiresAt,
+  };
+
+  if (!hasRequiredInstagramScopes(credential.scopes)) {
     return {
+      ...base,
       connected: false,
-      username: null,
-      accountId: null,
-      expiresAt: null,
+      requiresReconnect: true,
+      tokenStatus: "legacy",
       expiringSoon: false,
     };
   }
 
-  const sevenDays = 7 * 24 * 60 * 60 * 1000;
+  const remaining = credential.expiresAt
+    ? credential.expiresAt.getTime() - now.getTime()
+    : Number.POSITIVE_INFINITY;
+
+  if (remaining <= 0) {
+    return {
+      ...base,
+      connected: false,
+      requiresReconnect: true,
+      tokenStatus: "expired",
+      expiringSoon: true,
+    };
+  }
+
+  const expiringSoon = remaining < 7 * 24 * 60 * 60 * 1000;
 
   return {
-    connected: true,
-    username: credential.externalUsername,
-    accountId: credential.externalAccountId,
-    expiresAt: credential.expiresAt,
-    expiringSoon: Boolean(
-      credential.expiresAt &&
-        credential.expiresAt.getTime() - Date.now() < sevenDays,
-    ),
+    ...base,
+    connected: Boolean(credential.externalAccountId),
+    requiresReconnect: false,
+    tokenStatus: expiringSoon ? "expiring" : "valid",
+    expiringSoon,
   };
 }
 
-/** Speichert ein Zugangstoken verschlüsselt. */
+function shouldRefreshCredential(
+  credential: StoredCredential,
+  now = new Date(),
+): boolean {
+  if (!credential.expiresAt) return false;
+
+  const remaining = credential.expiresAt.getTime() - now.getTime();
+  const tokenAge = now.getTime() - credential.updatedAt.getTime();
+
+  return (
+    remaining > 0 &&
+    remaining <= REFRESH_WINDOW_MS &&
+    tokenAge >= MINIMUM_REFRESH_AGE_MS
+  );
+}
+
+async function refreshStoredCredential(
+  credential: StoredCredential,
+  now = new Date(),
+): Promise<StoredCredential> {
+  const currentToken = decryptSecret(credential.accessTokenEncrypted);
+  const refreshed = await refreshInstagramLongLivedToken(currentToken);
+  const expiresAt = new Date(now.getTime() + refreshed.expiresIn * 1000);
+
+  const updated = await prisma.integrationCredential.update({
+    where: { id: credential.id },
+    data: {
+      accessTokenEncrypted: encryptSecret(refreshed.accessToken),
+      expiresAt,
+    },
+    select: credentialSelect,
+  });
+
+  logger.info("Instagram-Zugang erneuert", {
+    accountId: credential.externalAccountId,
+    expiresAt,
+  });
+
+  return updated;
+}
+
+async function refreshWhenNeeded(
+  credential: StoredCredential,
+): Promise<StoredCredential> {
+  if (!shouldRefreshCredential(credential)) return credential;
+
+  try {
+    return await refreshStoredCredential(credential);
+  } catch (error) {
+    // Solange das alte Token noch gilt, darf ein temporaerer Refresh-Fehler das
+    // Publishing nicht blockieren. Der naechste Serverzugriff versucht es neu.
+    logger.warn("Instagram-Zugang konnte noch nicht erneuert werden", {
+      accountId: credential.externalAccountId,
+      error,
+    });
+    return credential;
+  }
+}
+
+async function findCredential(): Promise<StoredCredential | null> {
+  return prisma.integrationCredential.findUnique({
+    where: { provider: PROVIDER },
+    select: credentialSelect,
+  });
+}
+
+/** Verbindungsstatus fuer den Admin, niemals mit Klartext-Token. */
+export async function getInstagramConnection(): Promise<InstagramConnection> {
+  const stored = await findCredential();
+
+  if (!stored || !stored.active) return emptyConnection();
+
+  if (!hasRequiredInstagramScopes(stored.scopes)) {
+    return connectionFromCredential(stored);
+  }
+
+  const credential = await refreshWhenNeeded(stored);
+  return connectionFromCredential(credential);
+}
+
+/** Speichert ein Instagram-Zugangstoken verschluesselt. */
 export async function saveInstagramCredential(input: {
   accessToken: string;
   accountId: string;
-  username: string | null;
-  expiresAt: Date | null;
-  scopes?: string[];
+  username: string;
+  expiresAt: Date;
+  scopes: string[];
 }): Promise<void> {
   const accessTokenEncrypted = encryptSecret(input.accessToken);
+  const connectedAt = new Date();
 
   await prisma.integrationCredential.upsert({
     where: { provider: PROVIDER },
@@ -92,17 +247,18 @@ export async function saveInstagramCredential(input: {
       externalAccountId: input.accountId,
       externalUsername: input.username,
       expiresAt: input.expiresAt,
-      scopes: input.scopes ?? [],
+      scopes: input.scopes,
       active: true,
+      connectedAt,
     },
     update: {
       accessTokenEncrypted,
       externalAccountId: input.accountId,
       externalUsername: input.username,
       expiresAt: input.expiresAt,
-      scopes: input.scopes ?? [],
+      scopes: input.scopes,
       active: true,
-      connectedAt: new Date(),
+      connectedAt,
     },
   });
 
@@ -118,136 +274,38 @@ async function loadCredential(): Promise<{
   accessToken: string;
   accountId: string;
 }> {
-  const credential = await prisma.integrationCredential.findUnique({
-    where: { provider: PROVIDER },
-  });
+  const stored = await findCredential();
 
-  if (!credential || !credential.active || !credential.externalAccountId) {
+  if (!stored || !stored.active || !stored.externalAccountId) {
     throw new UserFacingError(
       "Es ist kein Instagram-Konto verbunden. Bitte stellen Sie die " +
-        "Verbindung unter „Integrationen“ her.",
+        "Verbindung unter \u201eIntegrationen\u201c her.",
       "NOT_CONFIGURED",
     );
   }
 
-  if (credential.expiresAt && credential.expiresAt.getTime() < Date.now()) {
+  if (!hasRequiredInstagramScopes(stored.scopes)) {
+    throw new UserFacingError(
+      "Die gespeicherte Instagram-Verbindung verwendet den früheren " +
+        "Anmeldeweg. Bitte verbinden Sie das Konto unter \u201eIntegrationen\u201c neu.",
+      "NOT_CONFIGURED",
+    );
+  }
+
+  if (stored.expiresAt && stored.expiresAt.getTime() <= Date.now()) {
     throw new UserFacingError(
       "Der Instagram-Zugang ist abgelaufen. Bitte verbinden Sie das Konto " +
-        "unter „Integrationen“ erneut.",
+        "unter \u201eIntegrationen\u201c erneut.",
       "UNAUTHORIZED",
     );
   }
+
+  const credential = await refreshWhenNeeded(stored);
 
   return {
     accessToken: decryptSecret(credential.accessTokenEncrypted),
-    accountId: credential.externalAccountId,
+    accountId: credential.externalAccountId!,
   };
-}
-
-/**
- * Übersetzt einen Graph-API-Fehler in eine Meldung, die dem Admin
- * weiterhilft (US-24). Der Rohfehler bleibt im Log.
- */
-function toUserFacingGraphError(
-  status: number,
-  body: { error?: { message?: string; code?: number; error_subcode?: number } },
-): UserFacingError {
-  const code = body.error?.code;
-
-  if (status === 401 || code === 190) {
-    return new UserFacingError(
-      "Der Instagram-Zugang wurde von Meta abgelehnt. Das passiert meist, " +
-        "wenn das Token abgelaufen ist oder der Zugriff entzogen wurde. " +
-        "Bitte verbinden Sie das Konto unter „Integrationen“ erneut.",
-      "UNAUTHORIZED",
-    );
-  }
-
-  if (status === 429 || code === 4 || code === 32) {
-    return new UserFacingError(
-      "Instagram hat das Veröffentlichungslimit erreicht (maximal 50 Beiträge " +
-        "in 24 Stunden). Bitte versuchen Sie es später erneut.",
-      "RATE_LIMITED",
-    );
-  }
-
-  if (code === 9004 || code === 2207052) {
-    return new UserFacingError(
-      "Instagram konnte das Bild nicht laden. Es muss unter einer öffentlich " +
-        "erreichbaren Adresse liegen, im Format JPEG vorliegen und darf " +
-        "höchstens 8 MB groß sein.",
-      "SERVICE_UNAVAILABLE",
-    );
-  }
-
-  if (status >= 500) {
-    return new UserFacingError(
-      "Instagram ist derzeit nicht erreichbar. Bitte versuchen Sie es in ein " +
-        "paar Minuten erneut.",
-      "SERVICE_UNAVAILABLE",
-    );
-  }
-
-  return new UserFacingError(
-    "Instagram hat die Veröffentlichung abgelehnt. Bitte prüfen Sie unter " +
-      "„Integrationen“, ob das Konto noch verbunden ist, und versuchen Sie es " +
-      "erneut.",
-    "SERVICE_UNAVAILABLE",
-  );
-}
-
-async function graphRequest<T>(
-  path: string,
-  params: Record<string, string>,
-  method: "GET" | "POST" = "POST",
-): Promise<T> {
-  const url = new URL(`${GRAPH_BASE_URL}${path}`);
-
-  const init: RequestInit = { method };
-
-  if (method === "GET") {
-    for (const [key, value] of Object.entries(params)) {
-      url.searchParams.set(key, value);
-    }
-  } else {
-    init.body = new URLSearchParams(params);
-  }
-
-  let response: Response;
-
-  try {
-    response = await fetch(url, {
-      ...init,
-      // Verhindert, dass ein hängender Aufruf die Server Action blockiert.
-      signal: AbortSignal.timeout(30_000),
-    });
-  } catch (error) {
-    logger.error("Instagram-Anfrage fehlgeschlagen", { path, error });
-    throw new UserFacingError(
-      "Instagram konnte nicht erreicht werden. Bitte prüfen Sie die " +
-        "Internetverbindung und versuchen Sie es erneut.",
-      "SERVICE_UNAVAILABLE",
-    );
-  }
-
-  const body = (await response.json().catch(() => ({}))) as {
-    error?: { message?: string; code?: number };
-  };
-
-  if (!response.ok) {
-    // Die URL enthält kein Token (das steckt im Body), aber die
-    // Meta-Fehlermeldung kann Kontodetails enthalten – daher nur ins Log.
-    logger.error("Instagram-API hat einen Fehler gemeldet", {
-      path,
-      status: response.status,
-      graphMessage: body.error?.message,
-      graphCode: body.error?.code,
-    });
-
-    throw toUserFacingGraphError(response.status, body);
-  }
-
-  return body as T;
 }
 
 export type PublishResult = {
@@ -255,175 +313,90 @@ export type PublishResult = {
   permalink: string | null;
 };
 
-/**
- * Veröffentlicht ein Bild mit Bildunterschrift (US-23).
- *
- * WICHTIG: Diese Funktion prüft NICHT den Freigabestatus. Das passiert eine
- * Ebene höher in `publishSocialDraft()` – dort ist die Prüfung "nur APPROVED"
- * verankert, damit sie nicht umgangen werden kann, indem jemand direkt hier
- * einsteigt.
- */
+/** Veröffentlicht das erste Bild eines freigegebenen Social-Media-Entwurfs. */
 export async function publishImagePost(input: {
   imageUrl: string;
   caption: string;
 }): Promise<PublishResult> {
-  if (!isInstagramConfigured()) {
-    throw new UserFacingError(
-      "Die Instagram-Integration ist nicht eingerichtet. Es fehlen " +
-        "INSTAGRAM_APP_ID, INSTAGRAM_APP_SECRET oder INSTAGRAM_REDIRECT_URI.",
-      "NOT_CONFIGURED",
-    );
-  }
-
+  // Erzwingt eine vollstaendige Konfiguration, bevor externe Aufrufe beginnen.
+  instagramConfig();
   const { accessToken, accountId } = await loadCredential();
 
-  // Schritt 1: Medien-Container anlegen.
-  const container = await graphRequest<{ id: string }>(
-    `/${accountId}/media`,
-    {
-      image_url: input.imageUrl,
-      caption: input.caption,
-      access_token: accessToken,
-    },
-  );
-
-  // Schritt 2: Container veröffentlichen.
-  const published = await graphRequest<{ id: string }>(
-    `/${accountId}/media_publish`,
-    {
-      creation_id: container.id,
-      access_token: accessToken,
-    },
-  );
-
-  // Schritt 3: Permalink nachladen. Schlägt das fehl, ist der Beitrag
-  // trotzdem online – der Link ist nur Komfort.
-  let permalink: string | null = null;
-
+  // Das echte Kontolimit ist dynamisch. Ein Fehler dieser Komfortabfrage darf
+  // einen ansonsten gueltigen Beitrag nicht verhindern.
   try {
-    const details = await graphRequest<{ permalink?: string }>(
-      `/${published.id}`,
-      { fields: "permalink", access_token: accessToken },
-      "GET",
-    );
-    permalink = details.permalink ?? null;
-  } catch {
-    logger.warn("Permalink konnte nicht geladen werden", {
-      postId: published.id,
+    const limit = await getInstagramPublishingLimit(accountId, accessToken);
+    if (limit && limit.total > 0 && limit.usage >= limit.total) {
+      throw new UserFacingError(
+        `Instagram hat das aktuelle Veröffentlichungslimit erreicht ` +
+          `(${limit.usage} von ${limit.total}). Bitte versuchen Sie es später erneut.`,
+        "RATE_LIMITED",
+      );
+    }
+  } catch (error) {
+    if (error instanceof UserFacingError && error.code === "RATE_LIMITED") {
+      throw error;
+    }
+    logger.warn("Instagram-Veröffentlichungslimit konnte nicht gelesen werden", {
+      accountId,
+      error,
     });
   }
 
-  logger.info("Instagram-Beitrag veröffentlicht", { postId: published.id });
+  const containerId = await createInstagramImageContainer(
+    accountId,
+    accessToken,
+    input,
+  );
+  const postId = await publishInstagramImageContainer(
+    accountId,
+    accessToken,
+    containerId,
+  );
 
-  return { postId: published.id, permalink };
+  let permalink: string | null = null;
+  try {
+    permalink = await getInstagramMediaPermalink(postId, accessToken);
+  } catch {
+    logger.warn("Instagram-Permalink konnte nicht geladen werden", { postId });
+  }
+
+  logger.info("Instagram-Beitrag veröffentlicht", { postId });
+  return { postId, permalink };
 }
 
 // ---------------------------------------------------------------------------
-// OAuth (US-22)
+// OAuth
 // ---------------------------------------------------------------------------
 
-const REQUIRED_SCOPES = [
-  "instagram_basic",
-  "instagram_content_publish",
-  "pages_show_list",
-  "business_management",
-];
-
-/** Startadresse des Meta-Anmeldedialogs. */
 export function buildInstagramAuthUrl(state: string): string {
-  const config = env();
-
-  if (!isInstagramConfigured()) {
-    throw new UserFacingError(
-      "Die Instagram-Integration ist nicht eingerichtet. Bitte hinterlegen " +
-        "Sie INSTAGRAM_APP_ID, INSTAGRAM_APP_SECRET und INSTAGRAM_REDIRECT_URI.",
-      "NOT_CONFIGURED",
-    );
-  }
-
-  const url = new URL("https://www.facebook.com/v21.0/dialog/oauth");
-  url.searchParams.set("client_id", config.INSTAGRAM_APP_ID!);
-  url.searchParams.set("redirect_uri", config.INSTAGRAM_REDIRECT_URI!);
-  url.searchParams.set("scope", REQUIRED_SCOPES.join(","));
-  url.searchParams.set("response_type", "code");
-  url.searchParams.set("state", state);
-
-  return url.toString();
+  return buildInstagramAuthorizationUrl(instagramConfig(), state);
 }
 
 /**
- * Tauscht den OAuth-Code gegen ein langlebiges Token und ermittelt das
- * verknüpfte Instagram-Business-Konto.
+ * Tauscht den OAuth-Code gegen ein langlebiges Instagram-Token und ermittelt
+ * den Professional Account direkt, ohne Facebook Page Discovery.
  */
 export async function exchangeInstagramCode(code: string): Promise<{
   accessToken: string;
   accountId: string;
-  username: string | null;
-  expiresAt: Date | null;
+  username: string;
+  expiresAt: Date;
+  scopes: string[];
 }> {
-  const config = env();
-
-  // 1. Kurzlebiges Nutzertoken
-  const short = await graphRequest<{ access_token: string }>(
-    "/oauth/access_token",
-    {
-      client_id: config.INSTAGRAM_APP_ID!,
-      client_secret: config.INSTAGRAM_APP_SECRET!,
-      redirect_uri: config.INSTAGRAM_REDIRECT_URI!,
-      code,
-    },
-    "GET",
+  const config = instagramConfig();
+  const short = await exchangeInstagramAuthorizationCode(config, code);
+  const long = await exchangeInstagramLongLivedToken(
+    config.appSecret,
+    short.accessToken,
   );
-
-  // 2. Gegen ein langlebiges Token tauschen (rund 60 Tage gültig)
-  const long = await graphRequest<{
-    access_token: string;
-    expires_in?: number;
-  }>(
-    "/oauth/access_token",
-    {
-      grant_type: "fb_exchange_token",
-      client_id: config.INSTAGRAM_APP_ID!,
-      client_secret: config.INSTAGRAM_APP_SECRET!,
-      fb_exchange_token: short.access_token,
-    },
-    "GET",
-  );
-
-  // 3. Facebook-Seiten mit verknüpftem Instagram-Business-Konto suchen
-  const pages = await graphRequest<{
-    data?: {
-      id: string;
-      name: string;
-      instagram_business_account?: { id: string; username?: string };
-    }[];
-  }>(
-    "/me/accounts",
-    {
-      fields: "id,name,instagram_business_account{id,username}",
-      access_token: long.access_token,
-    },
-    "GET",
-  );
-
-  const page = pages.data?.find((entry) => entry.instagram_business_account);
-
-  if (!page?.instagram_business_account) {
-    throw new UserFacingError(
-      "Es wurde kein Instagram-Business-Konto gefunden. Bitte stellen Sie " +
-        "sicher, dass Ihr Instagram-Konto ein Business- oder Creator-Konto " +
-        "ist und mit einer Facebook-Seite verknüpft wurde. Für Privatkonten " +
-        "erlaubt Meta keine automatische Veröffentlichung.",
-      "NOT_CONFIGURED",
-    );
-  }
+  const profile = await getInstagramProfile(long.accessToken);
 
   return {
-    accessToken: long.access_token,
-    accountId: page.instagram_business_account.id,
-    username: page.instagram_business_account.username ?? null,
-    expiresAt: long.expires_in
-      ? new Date(Date.now() + long.expires_in * 1000)
-      : null,
+    accessToken: long.accessToken,
+    accountId: profile.userId,
+    username: profile.username,
+    expiresAt: new Date(Date.now() + long.expiresIn * 1000),
+    scopes: short.scopes,
   };
 }
