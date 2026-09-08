@@ -18,7 +18,7 @@ export const metadata: Metadata = { title: "Social Media" };
  * Server nie.
  */
 export default async function AdminSocialMediaPage() {
-  const [vehicles, drafts, connection] = await Promise.all([
+  const [vehicleSelection, drafts, connection] = await Promise.all([
     listVehiclesForSocial(),
     listSocialDrafts(),
     getInstagramConnection(),
@@ -32,7 +32,8 @@ export default async function AdminSocialMediaPage() {
       />
 
       <SocialMediaManager
-        vehicles={vehicles}
+        vehicles={vehicleSelection.vehicles}
+        totalVehicleCount={vehicleSelection.totalCount}
         drafts={drafts}
         openAiConfigured={isOpenAIConfigured()}
         deploymentEnvironment={deploymentEnvironment()}

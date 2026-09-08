@@ -46,8 +46,9 @@ export type VehicleListItem = {
   vatDeductible: boolean;
   mileageKm: number;
   firstRegistration: Date | null;
-  fuel: FuelType;
-  transmission: TransmissionType;
+  /** null = keine Angabe. Wird nirgends geraten – siehe Prisma-Schema. */
+  fuel: FuelType | null;
+  transmission: TransmissionType | null;
   bodyType: BodyType;
   condition: VehicleCondition;
   powerKw: number | null;

@@ -7,6 +7,7 @@ import {
   Check,
   CircleCheck,
   ExternalLink,
+  ImageOff,
   Loader2,
   Pencil,
   Plus,
@@ -42,7 +43,10 @@ import {
   updateDraft,
 } from "@/modules/social/actions";
 import type { SocialDraftListItem } from "@/modules/social/repository";
-import { formatDateTime } from "@/modules/vehicles/labels";
+import {
+  VEHICLE_STATUS_LABELS,
+  formatDateTime,
+} from "@/modules/vehicles/labels";
 
 /**
  * Beitragsassistent (EPIC 7, EPIC 8).
@@ -58,7 +62,18 @@ type VehicleOption = {
   title: string;
   priceCents: number;
   imageUrl: string | null;
+  active: boolean;
 };
+
+/**
+ * Ein Fahrzeug ohne Bild ist kein Fehler, sondern ein Zwischenstand: Der Text
+ * lässt sich erzeugen und freigeben, nur die Veröffentlichung wartet auf das
+ * Bild. Der Satz steht deshalb wörtlich an jeder Stelle gleich – beim
+ * ausgewählten Fahrzeug und am fertigen Entwurf.
+ */
+const MISSING_IMAGE_NOTICE =
+  "Bild fehlt – Text kann erstellt werden, Veröffentlichung auf Instagram " +
+  "erst nach Bild-Upload möglich.";
 
 type Feedback = { kind: "success" | "error"; message: string } | null;
 
@@ -83,12 +98,16 @@ const STATUS_STYLES: Record<
 
 export function SocialMediaManager({
   vehicles,
+  totalVehicleCount,
   drafts,
   openAiConfigured,
   deploymentEnvironment,
   instagramConnected,
 }: {
+  /** Fahrzeuge im Bestand – Auswahl für den Textentwurf. */
   vehicles: VehicleOption[];
+  /** Alle erfassten Fahrzeuge, auch verkaufte. Nur für den leeren Zustand. */
+  totalVehicleCount: number;
   drafts: SocialDraftListItem[];
   openAiConfigured: boolean;
   deploymentEnvironment: string | null;
@@ -101,6 +120,9 @@ export function SocialMediaManager({
   const [pending, startTransition] = useTransition();
 
   const selectedVehicle = vehicles.find((v) => v.id === selectedVehicleId);
+  const vehiclesWithImage = vehicles.filter(
+    (vehicle) => vehicle.imageUrl !== null,
+  ).length;
 
   function handleGenerate() {
     if (!selectedVehicleId) return;
@@ -165,28 +187,7 @@ export function SocialMediaManager({
         )}
 
         {vehicles.length === 0 ? (
-          /*
-           * Hier stand früher der Hinweis auf eine Fahrzeugsynchronisierung.
-           * Die gibt es nicht: Der öffentliche Bestand kommt aus dem
-           * willhaben-Widget und befüllt diese Datenbank nicht. Fahrzeuge für
-           * Beiträge werden im Admin angelegt.
-           */
-          <div className="border-border rounded-xl border border-dashed py-12 text-center">
-            <p className="text-sm leading-relaxed font-medium">
-              Es sind noch keine Fahrzeuge für Social-Media-Beiträge hinterlegt.
-            </p>
-            <p className="text-muted-foreground mx-auto mt-2 max-w-md text-sm leading-relaxed">
-              Legen Sie zuerst ein Fahrzeug im Adminbereich an. Der öffentliche
-              Fahrzeugbestand auf der Website kommt aus willhaben und steht hier
-              nicht zur Verfügung.
-            </p>
-            <Button asChild variant="brand" size="xl" className="mt-6">
-              <Link href="/admin/fahrzeuge/neu">
-                <Plus data-icon="inline-start" aria-hidden="true" />
-                Fahrzeug anlegen
-              </Link>
-            </Button>
-          </div>
+          <NoVehiclesState totalVehicleCount={totalVehicleCount} />
         ) : (
           <div className="flex flex-col gap-4 sm:flex-row sm:items-end">
             <div className="flex-1 space-y-2">
@@ -202,6 +203,13 @@ export function SocialMediaManager({
                   {vehicles.map((vehicle) => (
                     <SelectItem key={vehicle.id} value={vehicle.id}>
                       {vehicle.title} · {formatEuro(vehicle.priceCents)}
+                      {/*
+                       * Beides schließt die Auswahl nicht aus, erklärt aber,
+                       * warum ein Fahrzeug hier auftaucht bzw. was ihm zur
+                       * Veröffentlichung noch fehlt.
+                       */}
+                      {!vehicle.active && " · ausgeblendet"}
+                      {vehicle.imageUrl === null && " · ohne Bild"}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -228,22 +236,60 @@ export function SocialMediaManager({
           </div>
         )}
 
-        {selectedVehicle?.imageUrl && (
-          <div className="mt-5 flex items-center gap-4">
+        {/*
+          * Sammelhinweis, solange KEIN Fahrzeug im Bestand ein Bild hat. Ohne
+          * ihn sähe man erst nach der Auswahl, dass noch nichts
+          * veröffentlichbar ist.
+          */}
+        {vehicles.length > 0 && vehiclesWithImage === 0 && (
+          <div className="border-border bg-muted/60 mt-5 flex gap-3 rounded-lg border p-4 text-sm">
+            <ImageOff
+              className="text-warning mt-0.5 size-4 shrink-0"
+              aria-hidden="true"
+            />
+            <p className="leading-relaxed">
+              Keines der Fahrzeuge im Bestand hat bisher ein Bild. Texte lassen
+              sich trotzdem erstellen und freigeben – für die Veröffentlichung
+              auf Instagram braucht es je Fahrzeug mindestens ein Bild.
+            </p>
+          </div>
+        )}
+
+        {selectedVehicle && (
+          <div className="mt-5 flex items-start gap-4">
             <div className="bg-muted relative size-16 shrink-0 overflow-hidden rounded-lg">
-              <Image
-                src={selectedVehicle.imageUrl}
-                alt=""
-                fill
-                sizes="64px"
-                className="object-cover"
-              />
+              {selectedVehicle.imageUrl ? (
+                <Image
+                  src={selectedVehicle.imageUrl}
+                  alt=""
+                  fill
+                  sizes="64px"
+                  className="object-cover"
+                />
+              ) : (
+                <ImageOff
+                  className="text-muted-foreground absolute top-1/2 left-1/2 size-5 -translate-x-1/2 -translate-y-1/2"
+                  aria-hidden="true"
+                />
+              )}
             </div>
-            <div className="text-sm">
+            <div className="min-w-0 text-sm">
               <p className="font-medium">{selectedVehicle.title}</p>
               <p className="text-muted-foreground tabular">
                 {formatEuro(selectedVehicle.priceCents)}
               </p>
+
+              {selectedVehicle.imageUrl === null && (
+                <p className="text-warning mt-1.5 leading-relaxed">
+                  {MISSING_IMAGE_NOTICE}{" "}
+                  <Link
+                    href={`/admin/fahrzeuge/${selectedVehicle.id}`}
+                    className="underline underline-offset-2"
+                  >
+                    Bild hochladen
+                  </Link>
+                </p>
+              )}
             </div>
           </div>
         )}
@@ -273,6 +319,61 @@ export function SocialMediaManager({
           </ul>
         )}
       </section>
+    </div>
+  );
+}
+
+/**
+ * Leerer Zustand der Fahrzeugauswahl (US-18).
+ *
+ * Die beiden Fälle brauchen unterschiedliche nächste Schritte und dürfen
+ * deshalb nicht denselben Satz zeigen: Einmal fehlt der Datensatz überhaupt,
+ * einmal steht er nur nicht mehr im Bestand. Die frühere Sammelmeldung
+ * („noch keine Fahrzeuge hinterlegt“) schickte in beiden Fällen zum Anlegen –
+ * im zweiten Fall in die Irre.
+ *
+ * Was hier NICHT steht: ein Hinweis auf den öffentlichen Bestand. Der kommt
+ * aus dem willhaben-Widget, wird nicht ausgelesen und speist diese Auswahl
+ * nicht.
+ */
+function NoVehiclesState({ totalVehicleCount }: { totalVehicleCount: number }) {
+  const nothingCreatedYet = totalVehicleCount === 0;
+
+  return (
+    <div className="border-border rounded-xl border border-dashed py-12 text-center">
+      <p className="text-sm leading-relaxed font-medium">
+        {nothingCreatedYet
+          ? "Es sind noch keine Fahrzeuge angelegt."
+          : "Kein Fahrzeug steht derzeit im Bestand."}
+      </p>
+      <p className="text-muted-foreground mx-auto mt-2 max-w-md text-sm leading-relaxed">
+        {nothingCreatedYet ? (
+          <>
+            Legen Sie zuerst ein Fahrzeug im Adminbereich an. Ein Bild ist dafür
+            nicht nötig – der Text lässt sich auch ohne erstellen.
+          </>
+        ) : (
+          <>
+            {totalVehicleCount === 1
+              ? "Das erfasste Fahrzeug ist"
+              : `Alle ${totalVehicleCount} erfassten Fahrzeuge sind`}{" "}
+            als reserviert oder verkauft vermerkt. Für Beiträge stehen nur
+            Fahrzeuge im Bestand zur Verfügung.
+          </>
+        )}
+      </p>
+      <Button asChild variant="brand" size="xl" className="mt-6">
+        <Link href={nothingCreatedYet ? "/admin/fahrzeuge/neu" : "/admin/fahrzeuge"}>
+          {nothingCreatedYet ? (
+            <>
+              <Plus data-icon="inline-start" aria-hidden="true" />
+              Fahrzeug anlegen
+            </>
+          ) : (
+            "Zur Fahrzeugverwaltung"
+          )}
+        </Link>
+      </Button>
     </div>
   );
 }
@@ -320,6 +421,15 @@ function DraftCard({
   const status = STATUS_STYLES[draft.status];
   const published = draft.status === "PUBLISHED";
 
+  /*
+   * Der Entwurf hält den Bildstand vom Zeitpunkt der Generierung fest. Wurde
+   * das Bild erst danach hochgeladen, ist der Beitrag trotzdem
+   * veröffentlichbar – `publishDraft` greift dann auf das aktuelle
+   * Fahrzeugbild zurück. Beide Quellen zählen deshalb auch hier.
+   */
+  const hasImage =
+    draft.imageUrls.length > 0 || draft.vehicle.primaryImageUrl !== null;
+
   function run(
     action: () => Promise<
       { ok: true; data: { message: string } } | { ok: false; error: string }
@@ -359,9 +469,21 @@ function DraftCard({
             <h3 className="truncate font-semibold">{draft.vehicle.title}</h3>
             <p className="text-muted-foreground tabular mt-0.5 text-sm">
               {formatEuro(draft.vehicle.priceCents)}
-              {!draft.vehicle.active && (
+              {/*
+               * Zwei verschiedene Sachverhalte, die sich nicht ausschließen:
+               * `status` sagt, ob das Fahrzeug noch im Bestand ist, `active`
+               * nur, ob es in der Fahrzeugverwaltung eingeblendet wird. Sie
+               * hier zusammenzufassen hieße, „ausgeblendet“ als „verkauft“ zu
+               * melden.
+               */}
+              {draft.vehicle.status !== "IN_STOCK" && (
                 <span className="text-warning ml-2">
-                  · Fahrzeug nicht mehr im Bestand
+                  · {VEHICLE_STATUS_LABELS[draft.vehicle.status]}
+                </span>
+              )}
+              {!draft.vehicle.active && (
+                <span className="text-muted-foreground ml-2">
+                  · ausgeblendet
                 </span>
               )}
             </p>
@@ -376,6 +498,25 @@ function DraftCard({
           {status.label}
         </Badge>
       </div>
+
+      {/* Ohne Bild bleibt der Beitrag ein Textentwurf. */}
+      {!hasImage && !published && (
+        <div className="border-border bg-muted/60 mt-4 flex gap-3 rounded-lg border p-3.5 text-sm">
+          <ImageOff
+            className="text-warning mt-0.5 size-4 shrink-0"
+            aria-hidden="true"
+          />
+          <p className="leading-relaxed">
+            {MISSING_IMAGE_NOTICE}{" "}
+            <Link
+              href={`/admin/fahrzeuge/${draft.vehicle.id}`}
+              className="underline underline-offset-2"
+            >
+              Bild hochladen
+            </Link>
+          </p>
+        </div>
+      )}
 
       {/* Fehlermeldung (US-24) */}
       {draft.status === "FAILED" && draft.errorMessage && (
@@ -511,14 +652,22 @@ function DraftCard({
 
           {draft.status === "APPROVED" && (
             <>
+              {/*
+                * Zwei getrennte Voraussetzungen, zwei getrennte Begründungen.
+                * Die verbindliche Prüfung sitzt in `publishDraft` – hier steht
+                * sie nur, damit niemand auf eine Schaltfläche drückt, die
+                * ohnehin abweist.
+                */}
               <Button
                 variant="brand"
                 size="xl"
-                disabled={pending || !instagramConnected}
+                disabled={pending || !instagramConnected || !hasImage}
                 title={
-                  instagramConnected
-                    ? undefined
-                    : "Bitte zuerst unter „Integrationen“ ein Instagram-Konto verbinden."
+                  !hasImage
+                    ? MISSING_IMAGE_NOTICE
+                    : instagramConnected
+                      ? undefined
+                      : "Bitte zuerst unter „Integrationen“ ein Instagram-Konto verbinden."
                 }
                 onClick={() => run(() => publishDraft(draft.id))}
               >
@@ -551,7 +700,8 @@ function DraftCard({
             <Button
               variant="brand"
               size="xl"
-              disabled={pending || !instagramConnected}
+              disabled={pending || !instagramConnected || !hasImage}
+              title={hasImage ? undefined : MISSING_IMAGE_NOTICE}
               onClick={() => run(() => retryPublish(draft.id))}
             >
               {pending ? (

@@ -109,9 +109,19 @@ function buildVehiclePrompt(
     facts.push(`Erstzulassung: ${formatRegistration(vehicle.firstRegistration)}`);
   }
 
-  facts.push(`Kraftstoff: ${FUEL_LABELS[vehicle.fuel]}`);
-  facts.push(`Getriebe: ${TRANSMISSION_LABELS[vehicle.transmission]}`);
-  facts.push(`Aufbau: ${BODY_TYPE_LABELS[vehicle.bodyType]}`);
+  // Regel 1 von oben in Reinform: Was nicht bekannt ist, taucht im Prompt gar
+  // nicht erst auf. Fahrzeuge aus dem CSV-Bestandsimport bringen weder
+  // Kraftstoff noch Getriebe mit; eine Vorbelegung stünde sonst als Tatsache
+  // im Beitrag.
+  if (vehicle.fuel) facts.push(`Kraftstoff: ${FUEL_LABELS[vehicle.fuel]}`);
+  if (vehicle.transmission) {
+    facts.push(`Getriebe: ${TRANSMISSION_LABELS[vehicle.transmission]}`);
+  }
+  // "Sonstige" ist die Voreinstellung der Spalte und keine Aussage über das
+  // Fahrzeug – sie gehört deshalb ebenso wenig in den Prompt.
+  if (vehicle.bodyType !== "OTHER") {
+    facts.push(`Aufbau: ${BODY_TYPE_LABELS[vehicle.bodyType]}`);
+  }
   facts.push(`Fahrzeugart: ${CONDITION_LABELS[vehicle.condition]}`);
 
   if (vehicle.powerKw !== null) facts.push(`Leistung: ${formatPower(vehicle.powerKw)}`);

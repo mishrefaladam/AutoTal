@@ -17,6 +17,11 @@ export type AdminVehicleListItem = {
   externalSource: string;
   imageCount: number;
   primaryImageUrl: string | null;
+  /**
+   * Gesetzt, wenn das Fahrzeug im letzten CSV-Import fehlte. Nur ein Hinweis
+   * zum Nachsehen – der Import ändert daraufhin nichts.
+   */
+  missingSinceImportAt: Date | null;
   updatedAt: Date;
 };
 
@@ -71,6 +76,7 @@ export async function listVehiclesForAdmin(
       status: true,
       soldAt: true,
       externalSource: true,
+      missingSinceImportAt: true,
       updatedAt: true,
       images: {
         orderBy: { position: "asc" },
@@ -89,6 +95,7 @@ export async function listVehiclesForAdmin(
     status: row.status,
     soldAt: row.soldAt,
     externalSource: row.externalSource,
+    missingSinceImportAt: row.missingSinceImportAt,
     imageCount: row.images.length,
     primaryImageUrl: row.images[0]?.url ?? null,
     updatedAt: row.updatedAt,

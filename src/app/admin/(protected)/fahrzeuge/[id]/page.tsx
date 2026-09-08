@@ -49,8 +49,10 @@ export default async function EditVehiclePage({
     vatDeductible: vehicle.vatDeductible,
     mileageKm: String(vehicle.mileageKm),
     firstRegistration: toMonthValue(vehicle.firstRegistration),
-    fuel: vehicle.fuel,
-    transmission: vehicle.transmission,
+    // Leer statt geraten: Ein importiertes Fahrzeug ohne Angabe zwingt beim
+    // Speichern zur bewussten Auswahl, statt still einen Wert zu erfinden.
+    fuel: vehicle.fuel ?? "",
+    transmission: vehicle.transmission ?? "",
     bodyType: vehicle.bodyType,
     condition: vehicle.condition,
     status: vehicle.status,

@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import Image from "next/image";
 import Link from "next/link";
-import { Car, ExternalLink, ImageOff, Plus } from "lucide-react";
+import { Car, ExternalLink, ImageOff, Plus, Upload } from "lucide-react";
 
 import { AdminCard, AdminPageHeader } from "@/components/admin/admin-page-header";
 import {
@@ -102,17 +102,30 @@ export default async function AdminVehiclesPage({
           und wird dort gepflegt.
         </p>
 
-        <Button asChild variant="outline" size="xl" className="shrink-0">
-          <a
-            href={WILLHABEN_DEALER_ADMIN}
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Bestand bei willhaben pflegen
-            <ExternalLink data-icon="inline-end" aria-hidden="true" />
-            <span className="sr-only"> (öffnet in neuem Tab)</span>
-          </a>
-        </Button>
+        <div className="flex shrink-0 flex-wrap gap-2">
+          {/*
+            * Der Import ist der Weg, wie der gepflegte Bestand hierher kommt:
+            * CSV aus dem Händlersystem, keine Übernahme aus dem Widget.
+            */}
+          <Button asChild variant="outline" size="xl">
+            <Link href="/admin/fahrzeuge/import">
+              <Upload data-icon="inline-start" aria-hidden="true" />
+              Bestand importieren
+            </Link>
+          </Button>
+
+          <Button asChild variant="outline" size="xl">
+            <a
+              href={WILLHABEN_DEALER_ADMIN}
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              Bestand bei willhaben pflegen
+              <ExternalLink data-icon="inline-end" aria-hidden="true" />
+              <span className="sr-only"> (öffnet in neuem Tab)</span>
+            </a>
+          </Button>
+        </div>
       </div>
 
       <VehicleOverview counts={counts} openInquiries={openInquiries} />
@@ -208,6 +221,22 @@ export default async function AdminVehiclesPage({
                       {vehicle.imageCount === 0 && (
                         <Badge className="bg-warning/15 text-warning-foreground border-transparent">
                           ohne Bild
+                        </Badge>
+                      )}
+
+                      {/*
+                        * Der Import hat dieses Fahrzeug zuletzt nicht mehr
+                        * gefunden. Bewusst als Frage und nicht als Tatsache:
+                        * Er weiß nicht, ob verkauft, offline genommen oder nur
+                        * aus dem Export gefallen – deshalb ändert er nichts
+                        * und legt die Entscheidung hierher.
+                        */}
+                      {vehicle.missingSinceImportAt && (
+                        <Badge
+                          className="bg-warning/15 text-warning-foreground border-transparent"
+                          title={`Seit ${formatDateTime(vehicle.missingSinceImportAt)} nicht mehr im Import. Möglicherweise verkauft, offline genommen oder entfernt – bitte prüfen.`}
+                        >
+                          nicht im letzten Import
                         </Badge>
                       )}
                     </div>

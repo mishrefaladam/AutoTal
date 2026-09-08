@@ -322,6 +322,19 @@ export async function publishDraft(
         caption: true,
         hashtags: true,
         imageUrls: true,
+        // Der Entwurf hält den Bildstand vom Zeitpunkt der Generierung fest.
+        // Da ein Text auch ohne Bild erzeugt werden darf, muss ein danach
+        // hochgeladenes Bild den Entwurf noch erreichen – sonst bliebe er
+        // dauerhaft unveröffentlichbar.
+        vehicle: {
+          select: {
+            images: {
+              orderBy: { position: "asc" },
+              take: 1,
+              select: { url: true },
+            },
+          },
+        },
       },
     });
 
@@ -352,12 +365,17 @@ export async function publishDraft(
       );
     }
 
-    const imageUrl = draft.imageUrls[0];
+    const imageUrl = draft.imageUrls[0] ?? draft.vehicle.images[0]?.url;
 
+    // ---- Das Bild-Gate ---------------------------------------------------
+    // Instagram verlangt ein Bild. Die Prüfung sitzt bewusst hier und nicht
+    // nur in der UI: Auch ein direkter Aufruf dieser Action kommt ohne Bild
+    // nicht durch.
     if (!imageUrl) {
       return fail(
-        "Für diesen Beitrag ist kein Bild hinterlegt. Instagram benötigt " +
-          "mindestens ein Bild.",
+        "Für dieses Fahrzeug ist kein Bild hinterlegt. Der Text bleibt " +
+          "erhalten; die Veröffentlichung auf Instagram ist erst nach dem " +
+          "Bild-Upload beim Fahrzeug möglich.",
         { code: "VALIDATION" },
       );
     }
@@ -383,6 +401,9 @@ export async function publishDraft(
         where: { id: draftId },
         data: {
           status: "PUBLISHED",
+          // Festhalten, was tatsächlich veröffentlicht wurde – auch wenn das
+          // Bild erst nach der Generierung dazugekommen ist.
+          imageUrls: [imageUrl],
           publishedAt: new Date(),
           externalPostId: result.postId,
           externalPermalink: result.permalink,

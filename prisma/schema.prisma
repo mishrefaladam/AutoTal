@@ -104,8 +104,12 @@ model Vehicle {
 
   mileageKm         Int
   firstRegistration DateTime?
-  fuel              FuelType
-  transmission      TransmissionType
+  /// Kraftstoff und Getriebe sind optional, weil der CSV-Bestandsimport sie
+  /// nicht liefert. Sie zu raten wäre schädlich: Die Caption-Erzeugung führt
+  /// jede gesetzte Angabe als Tatsache in den Prompt. NULL heißt "keine
+  /// Angabe" und wird dort weggelassen, statt etwas zu behaupten.
+  fuel              FuelType?
+  transmission      TransmissionType?
   bodyType          BodyType         @default(OTHER)
   condition         VehicleCondition @default(USED)
 
@@ -130,6 +134,30 @@ model Vehicle {
   /// Nur im Admin sichtbar, nie öffentlich ausgegeben
   internalNotes String @default("")
 
+  // -- Bestandsimport (CSV) ---------------------------------------------------
+  // Rein additiv: Von Hand angelegte Fahrzeuge lassen alle Felder leer und
+  // verhalten sich unverändert.
+  /// Bestandsnummer des Händlersystems ("GW-Nr"). Zweitstärkstes Merkmal beim
+  /// Zuordnen einer Importzeile.
+  stockNumber String?
+  /// Fahrgestellnummer ("FIN"). Stärkstes Merkmal beim Zuordnen.
+  vin         String?
+  /// Erster Import, aus dem dieser Datensatz stammt.
+  importedAt         DateTime?
+  /// Letzter Import, in dem das Fahrzeug enthalten war.
+  lastSeenInImportAt DateTime?
+  /// Gesetzt, sobald ein Import das Fahrzeug NICHT mehr enthielt.
+  ///
+  /// Ausdrücklich nur ein Hinweis zum Nachsehen: Der Import ändert daraufhin
+  /// weder Status noch Sichtbarkeit und löscht nichts. Ob das Fahrzeug
+  /// verkauft ist, entscheidet der Händler.
+  missingSinceImportAt DateTime?
+  /// Dateiname des letzten Imports – damit nachvollziehbar bleibt, woher der
+  /// Stand stammt.
+  importSource   String?
+  /// Auffälligkeiten der zuletzt eingelesenen Zeile, für den Admin lesbar.
+  importWarnings String[] @default([])
+
   images       VehicleImage[]
   socialDrafts SocialDraft[]
 
@@ -137,6 +165,12 @@ model Vehicle {
   updatedAt DateTime @updatedAt
 
   @@unique([externalSource, externalId])
+  // Beide Merkmale sind je Bestand eindeutig. NULL bleibt in Postgres
+  // beliebig oft erlaubt – von Hand angelegte Fahrzeuge stören sich nicht
+  // daran.
+  @@unique([vin])
+  @@unique([stockNumber])
+  @@index([missingSinceImportAt])
   @@index([active, priceCents])
   @@index([active, createdAt])
   @@index([active, make, model])
