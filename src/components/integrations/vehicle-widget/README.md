@@ -53,25 +53,41 @@ verschluckt. Der Besucher bekommt trotzdem keine technischen Details zu sehen.
 
 ### Content Security Policy
 
-Derzeit ist **keine** CSP gesetzt (`next.config.ts` enthält nur
-`X-Content-Type-Options`, `X-Frame-Options`, `Referrer-Policy`,
-`Permissions-Policy` und HSTS).
+`next.config.ts` setzt eine CSP, die bewusst **kein** `script-src`, `img-src`,
+`connect-src` oder `style-src` enthält – nur `base-uri`, `object-src`,
+`frame-ancestors` und `upgrade-insecure-requests`. Diese Direktiven sind für
+das Widget folgenlos und trotzdem wirksam.
 
-Das ist Absicht: Welche Domains das Widget lädt, ist unbekannt. Eine CSP
-aufzusetzen, bevor der Code vorliegt, würde das Widget beim Einbau blockieren.
+Der Grund für die Lücke: Widget Lite lädt Code und Daten von mehreren Hosts
+nach, und die Liste ist aus dem Quelltext nicht vollständig ableitbar. Aus
+`loader.js` und `widget.js` (Stand 08.09.2026) ist belegt:
 
-Sobald der Code da ist, gehören mindestens diese Direktiven geprüft und um die
-tatsächlich verwendeten willhaben-Domains ergänzt:
+| Zweck | Host | Direktive |
+| --- | --- | --- |
+| Loader, `splide.js`, `widget.js`, Platzhalterbild | `widget-lite.willhaben.at` | `script-src`, `img-src` |
+| `version.txt`, Fahrzeugdaten als JSON | `widget-lite.willhaben.at`, `gms.autopro24.at` | `connect-src` |
+| Matomo-Zählung (`disableCookies`, ohne Einwilligungsabfrage) | `stats.ap24-carports.at` | `script-src`, `connect-src` |
+| Eingebettete Karte | `maps.google.com`, `www.google.com` | `frame-src` |
+| Verlinkung ins Inserat | `www.willhaben.at`, `motornetzwerk.willhaben.at` | – (Navigation) |
 
-```
-frame-src    <Widget-Domains>    falls iframe
-script-src   <Widget-Domains>    falls externes Script
-img-src      <Bild-Domains>      Fahrzeugfotos
-connect-src  <API-Domains>       falls das Widget nachlädt
-style-src    <Style-Domains>     falls externes CSS
-```
+Nicht belegbar sind die **Hostnamen der Fahrzeugfotos**: Sie stehen erst in
+der JSON-Antwort (`vehicle.images`), nicht im Code. Eine unvollständige
+`img-src`-Liste würde die Galerie still leeren.
 
-Die konkreten Hostnamen sind bei willhaben zu erfragen – siehe „Offene Punkte“.
+Ebenfalls zu beachten: das Widget legt zur Laufzeit `<style>`- und
+`<link>`-Elemente an (`style-src` bräuchte daher `'unsafe-inline'`), und der
+Loader hängt weitere `<script>`-Elemente ein (ein reiner Host-Allowlist-Ansatz
+genügt dafür, `strict-dynamic` ist nicht nötig). In `widget.js` steckt ein
+`new Function`-Aufruf aus SweetAlert2; er wird nur erreicht, wenn ein
+`<swal-function-param>`-Element im DOM steht – das passiert hier nicht,
+`'unsafe-eval'` sollte also entbehrlich sein. Bestätigt ist das nicht.
+
+**Bevor `script-src`/`img-src`/`connect-src`/`style-src` scharf geschaltet
+werden**, gehört die Policy zuerst als `Content-Security-Policy-Report-Only`
+ausgeliefert und `/fahrzeuge` im Browser durchgeklickt (Liste, Detailansicht,
+Bildergalerie, Karte) – die Konsole nennt dann die fehlenden Hosts. Erst
+danach umstellen. Blind gesetzt bricht die Fahrzeugliste, und das fällt
+möglicherweise erst auf, wenn jemand anruft.
 
 ## Layout
 

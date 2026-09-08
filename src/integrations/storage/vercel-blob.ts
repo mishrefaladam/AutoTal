@@ -6,7 +6,7 @@ import { env } from "@/lib/env";
 import { logger } from "@/lib/logger";
 import { UserFacingError } from "@/lib/result";
 
-import type { FileStorage, StoredFile } from "./types";
+import { type FileStorage, type StoredFile, sanitizeUploadFilename } from "./types";
 
 /**
  * Vercel Blob – der Objektspeicher für den Produktivbetrieb.
@@ -38,7 +38,11 @@ export class VercelBlobStorage implements FileStorage {
     }
 
     try {
-      const result = await put(`${input.prefix}/${input.filename}`, input.data, {
+      // Der Dateiname stammt aus dem Browser und geht hier in den
+      // Ablageschlüssel ein – er wird deshalb zuerst entschärft.
+      const key = `${input.prefix}/${sanitizeUploadFilename(input.filename)}`;
+
+      const result = await put(key, input.data, {
         access: "public",
         contentType: input.contentType,
         addRandomSuffix: true,

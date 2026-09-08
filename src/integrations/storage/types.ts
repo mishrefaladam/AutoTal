@@ -42,6 +42,31 @@ export interface FileStorage {
   remove(url: string): Promise<void>;
 }
 
+/**
+ * Macht einen hochgeladenen Dateinamen als Ablageschlüssel unbedenklich.
+ *
+ * Der Name kommt aus dem Browser des Hochladenden und ist damit frei wählbar.
+ * Ungeprüft landet er im Ablagepfad: "../../woanders.jpg" würde die Datei aus
+ * dem vorgesehenen Präfix herausschreiben, und Zeichen wie "?" oder "#"
+ * zerlegen später die URL.
+ *
+ * Deshalb bleibt nur der letzte Pfadbestandteil übrig, und darin nur
+ * unbedenkliche Zeichen. Die Länge wird begrenzt, weil Ablagesysteme den
+ * Schlüssel sonst abschneiden.
+ */
+export function sanitizeUploadFilename(filename: string): string {
+  const lastSegment = filename.split(/[\\/]/).pop() ?? "";
+
+  const cleaned = lastSegment
+    .replace(/[^a-zA-Z0-9._-]/g, "-")
+    .slice(-80)
+    // Erst nach dem Kürzen: Sonst könnte das Abschneiden einen Punkt an den
+    // Anfang rücken und daraus doch noch eine versteckte Datei machen.
+    .replace(/^\.+/, "");
+
+  return cleaned || "bild";
+}
+
 /** Was Instagram und die Bildoptimierung akzeptieren. */
 export const ALLOWED_IMAGE_TYPES = [
   "image/jpeg",

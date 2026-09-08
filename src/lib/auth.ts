@@ -6,6 +6,12 @@ import { z } from "zod";
 import { authConfig } from "./auth.config";
 import { logger } from "./logger";
 import { prisma } from "./prisma";
+import {
+  RATE_LIMITS,
+  checkRateLimit,
+  clientIdentifierFromHeaders,
+  hashIdentifier,
+} from "./rate-limit";
 
 /**
  * Vollständige Auth.js-Konfiguration (Node-Laufzeit).
@@ -19,6 +25,11 @@ import { prisma } from "./prisma";
  *   - Fehlermeldungen unterscheiden nicht zwischen "Benutzer unbekannt" und
  *     "Passwort falsch".
  *   - Deaktivierte Benutzer (`active: false`) können sich nicht anmelden.
+ *   - Das Rate Limit sitzt HIER und nicht nur in `loginAction`. Auth.js
+ *     stellt unter /api/auth/callback/credentials einen eigenen Endpunkt
+ *     bereit, der `authorize()` direkt aufruft. Wer dorthin postet, geht an
+ *     der Server Action vorbei; ein Limit allein in `loginAction` wäre damit
+ *     wirkungslos gegen automatisiertes Durchprobieren.
  */
 
 const credentialsSchema = z.object({
@@ -43,12 +54,41 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
         password: { label: "Passwort", type: "password" },
       },
 
-      async authorize(rawCredentials) {
+      async authorize(rawCredentials, request) {
+        // Zuerst nach Absenderadresse begrenzen – noch vor der Validierung,
+        // damit auch unbrauchbare Anfragen auf das Kontingent gehen.
+        const client = clientIdentifierFromHeaders(request.headers);
+        const byClient = await checkRateLimit(
+          RATE_LIMITS.loginCredentials,
+          client,
+        );
+
+        if (!byClient.allowed) {
+          logger.warn("Anmeldeversuch durch Rate Limit abgewiesen", {
+            bucket: RATE_LIMITS.loginCredentials.bucket,
+          });
+          return null;
+        }
+
         const parsed = credentialsSchema.safeParse(rawCredentials);
 
         if (!parsed.success) return null;
 
         const { email, password } = parsed.data;
+
+        // Zusätzlich je Konto: Ein Angriff aus vielen Adressen gegen dasselbe
+        // Konto käme sonst an der Begrenzung nach Absenderadresse vorbei.
+        const byAccount = await checkRateLimit(
+          RATE_LIMITS.loginAccount,
+          hashIdentifier(email),
+        );
+
+        if (!byAccount.allowed) {
+          logger.warn("Anmeldeversuch durch Rate Limit abgewiesen", {
+            bucket: RATE_LIMITS.loginAccount.bucket,
+          });
+          return null;
+        }
 
         const user = await prisma.adminUser.findUnique({
           where: { email },

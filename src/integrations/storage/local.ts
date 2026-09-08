@@ -7,7 +7,7 @@ import path from "node:path";
 import { logger } from "@/lib/logger";
 import { UserFacingError } from "@/lib/result";
 
-import type { FileStorage, StoredFile } from "./types";
+import { type FileStorage, type StoredFile, sanitizeUploadFilename } from "./types";
 
 /**
  * Ablage im Dateisystem – ausschließlich für die lokale Entwicklung.
@@ -43,10 +43,8 @@ export class LocalFileStorage implements FileStorage {
 
     // Pfadangaben aus dem Dateinamen entfernen: Ein Name wie
     // "../../etc/passwd" darf nicht aus dem Upload-Verzeichnis herausführen.
-    const safeName = path
-      .basename(input.filename)
-      .replace(/[^a-zA-Z0-9._-]/g, "-")
-      .slice(-80);
+    // Dieselbe Behandlung wie beim Objektspeicher – siehe ./types.ts.
+    const safeName = sanitizeUploadFilename(input.filename);
 
     const unique = `${randomBytes(8).toString("hex")}-${safeName}`;
     const relative = path.posix.join(input.prefix, unique);
