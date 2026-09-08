@@ -1,6 +1,7 @@
 import "server-only";
 
 import OpenAI from "openai";
+import type { ChatCompletionCreateParamsNonStreaming } from "openai/resources/chat/completions";
 
 import { env, isOpenAIConfigured } from "@/lib/env";
 import { logger } from "@/lib/logger";
@@ -60,37 +61,106 @@ export type GeneratedCaption = {
   model: string;
 };
 
-const SYSTEM_PROMPT = `Du bist Social-Media-Redakteur eines österreichischen Autohauses und schreibst Instagram-Beiträge für Gebrauchtwagen.
+export type CaptionTone =
+  | "seriös"
+  | "sportlich"
+  | "luxuriös"
+  | "kurz"
+  | "emotional";
+
+export type CaptionStyleOptions = {
+  /** Reine Stilreferenz. Die enthaltenen Fahrzeugangaben sind keine Faktenquelle. */
+  exampleText?: string | null;
+  tone?: CaptionTone | null;
+  maxCharacters?: number | null;
+};
+
+export type CaptionCompletionRequest = ChatCompletionCreateParamsNonStreaming;
+
+type CaptionCompletionResponse = {
+  choices: Array<{ message: { content: string | null } }>;
+};
+
+export type CaptionGenerationDependencies = {
+  /** Ermöglicht Tests ohne echten API-Aufruf. In der Anwendung bleibt es leer. */
+  createCompletion?: (
+    request: CaptionCompletionRequest,
+  ) => Promise<CaptionCompletionResponse>;
+  model?: string;
+};
+
+export const DEFAULT_INSTAGRAM_MAX_CHARACTERS = 900;
+
+/**
+ * Zentral änderbare Stilreferenz, bis der Stil später optional in den
+ * Unternehmenseinstellungen gepflegt wird. Inhaltliche Aussagen daraus dürfen
+ * niemals in einen Beitrag übernommen werden.
+ */
+export const DEFAULT_INSTAGRAM_STYLE_EXAMPLE = `BMW X5 40e | M-Paket | Hybrid
+07/2018 | 129.127 km
+180 kW - 245 PS | € 32.150
+
+Highlights:
+• Abstandstempomat
+• Memory-Sitze
+• 360°-Kamera
+• Head-up-Display
+
+Jetzt bei AutoTal anfragen.
+#AutoTal #Gebrauchtwagen #BMW #BMWX5`;
+
+function resolveStyleOptions(options: CaptionStyleOptions = {}) {
+  const exampleText = options.exampleText?.trim() || DEFAULT_INSTAGRAM_STYLE_EXAMPLE;
+  const tone = options.tone ?? "seriös";
+  const requestedMax = options.maxCharacters ?? DEFAULT_INSTAGRAM_MAX_CHARACTERS;
+  const maxCharacters = Math.min(2_000, Math.max(300, Math.floor(requestedMax)));
+
+  return { exampleText, tone, maxCharacters };
+}
+
+export function buildInstagramSystemPrompt(
+  options: CaptionStyleOptions = {},
+): string {
+  const { maxCharacters, tone } = resolveStyleOptions(options);
+
+  return `Du bist Social-Media-Redakteur für AutoTal und schreibst professionelle Instagram-Beiträge für Gebrauchtwagen.
 
 ABSOLUTE REGELN:
-- Verwende AUSSCHLIESSLICH die Fahrzeugdaten, die dir im Nutzer-Prompt übergeben werden.
-- Erfinde NIEMALS Angaben. Keine Ausstattung, keine Garantien, keine Verbrauchs- oder CO2-Werte, keine Unfallfreiheit, keine Vorbesitzerzahl, keine Zusagen zur Finanzierung – nichts, was nicht ausdrücklich dasteht.
-- Wenn eine Angabe fehlt, erwähne sie gar nicht. Schreibe niemals "ca.", "vermutlich" oder Platzhalter.
+- Du darfst ausschließlich die angegebenen Fahrzeugdaten verwenden. Wenn eine Information fehlt, lasse sie weg. Erfinde keine Ausstattung, keine Garantie, keinen Preis, keine Finanzierung, keine Zustandsbeschreibung und keine technischen Daten.
+- Die Stilreferenz ist niemals eine Faktenquelle. Übernimm aus ihr nur Aufbau, Ton, Länge, Formulierungsart, Call-to-Action-, Emoji- und Hashtag-Stil. Kopiere sie nicht und übernimm keine ihrer Fahrzeugdaten oder Leistungsversprechen.
+- Behaupte niemals "unfallfrei", "1. Besitz" oder "servicegepflegt", außer genau diese Aussage steht ausdrücklich in den Fahrzeugdaten.
+- Erfinde keine Verbrauchs- oder CO2-Werte, Vorbesitzerzahl, Zustandsbewertung, Garantie, Finanzierung, Eintausch, Lieferung, Rabatte oder Aktionen.
+- Formuliere keine verbindliche Finanzierungszusage, kein Garantieversprechen und keine rechtlich riskanten Superlative wie "unschlagbar", "perfekt" oder "garantiert".
+- Wenn eine Angabe fehlt, erwähne sie gar nicht. Schreibe niemals "ca.", "vermutlich", "und vieles mehr" oder einen Platzhalter.
 - Übernimm Preis und Kilometerstand exakt so, wie sie angegeben sind. Runde nicht, schätze nicht, formuliere sie nicht um.
-- Nenne keine Rabatte, Aktionen oder Preisnachlässe.
-- Formuliere keine rechtsverbindlichen Aussagen und keine Kreditzusagen.
 
 STIL:
-- Deutsch, Sie-Form, professioneller Autohaus-Ton: sachlich, freundlich, ohne Werbefloskeln und Superlative.
-- 60 bis 120 Wörter.
-- Beginne mit dem Fahrzeug, nicht mit einer Begrüßungsfloskel.
-- Höchstens drei Emojis, sparsam eingesetzt.
-- Schließe mit einer konkreten Handlungsaufforderung (Besichtigung, Probefahrt oder Anruf).
+- Schreibe auf Deutsch, kurz, klar und verkaufsstark. Tonalität: ${tone}.
+- Klinge wie ein modernes Autohaus, nicht wie ein Chatbot und nicht wie generische Werbung.
+- Verwende vier bis sieben kurze Inhaltsblöcke und insgesamt höchstens ${maxCharacters} Zeichen inklusive Leerzeichen, aber ohne separat ausgegebene Hashtags.
+- Beginne mit einem kurzen, konkreten Einstieg und nenne danach Marke und Modell.
+- Nenne drei bis fünf kompakte Highlights nur dann, wenn entsprechende Daten vorhanden sind. Nutze Aufzählungspunkte. Gibt es keine Highlights, lasse den gesamten Highlights-Block weg.
+- Verwende höchstens drei passende Emojis. Emojis sind optional.
+- Erwähne AutoTal als Autohaus bei Wien und schließe mit einer klaren Kontaktaufforderung, zum Beispiel einer Anfrage oder Terminvereinbarung.
 - Setze KEINE Hashtags in den Fließtext; die kommen separat.
 
 HASHTAGS:
-- 8 bis 12 Stück, ohne Rautezeichen im Ausgabefeld.
-- Relevant für Marke, Modell, Fahrzeugart und Region. Keine irreführenden Tags.`;
+- Sechs bis zehn Stück, ohne Rautezeichen im Ausgabefeld.
+- AutoTal, AutoTalWien und GebrauchtwagenWien sollen enthalten sein.
+- Ergänze nur relevante Tags für die tatsächlich angegebene Marke, das Modell, die Fahrzeugart und die Region. Keine irreführenden Tags.`;
+}
 
 /**
  * Baut den Nutzer-Prompt ausschließlich aus tatsächlich vorhandenen Feldern.
  * Ein leeres Feld wird weggelassen statt mit "unbekannt" gefüllt – das
  * reduziert die Versuchung des Modells, es zu ergänzen.
  */
-function buildVehiclePrompt(
+export function buildVehiclePrompt(
   vehicle: VehicleDetail,
   company: { displayName: string; city: string },
+  options: CaptionStyleOptions = {},
 ): string {
+  const { exampleText } = resolveStyleOptions(options);
   const facts: string[] = [
     `Marke: ${vehicle.make}`,
     `Modell: ${vehicle.model}`,
@@ -143,6 +213,11 @@ function buildVehiclePrompt(
     "",
     "FAHRZEUGDATEN (nur diese verwenden):",
     ...facts.map((fact) => `- ${fact}`),
+    "",
+    "STILREFERENZ (nur Stil und Aufbau, keine Fakten übernehmen):",
+    exampleText,
+    "",
+    "WICHTIG: Der fertige Text muss eigenständig formuliert sein. Aussagen aus der Stilreferenz dürfen nur erscheinen, wenn sie zusätzlich in den Fahrzeugdaten stehen.",
   ]
     .filter((line) => line !== null)
     .join("\n");
@@ -157,8 +232,10 @@ const RESPONSE_SCHEMA = {
     },
     hashtags: {
       type: "array",
-      description: "8 bis 12 Hashtags ohne Rautezeichen.",
+      description: "6 bis 10 relevante Hashtags ohne Rautezeichen.",
       items: { type: "string" },
+      minItems: 6,
+      maxItems: 10,
     },
   },
   required: ["caption", "hashtags"],
@@ -168,8 +245,10 @@ const RESPONSE_SCHEMA = {
 export async function generateInstagramCaption(
   vehicle: VehicleDetail,
   company: { displayName: string; city: string },
+  styleOptions: CaptionStyleOptions = {},
+  dependencies: CaptionGenerationDependencies = {},
 ): Promise<GeneratedCaption> {
-  if (!isOpenAIConfigured()) {
+  if (!dependencies.createCompletion && !isOpenAIConfigured()) {
     throw new UserFacingError(
       "Die KI-Funktion ist nicht eingerichtet. Bitte hinterlegen Sie einen " +
         "OpenAI-API-Key in den Umgebungsvariablen.",
@@ -177,17 +256,25 @@ export async function generateInstagramCaption(
     );
   }
 
-  const model = env().OPENAI_MODEL;
+  const model = dependencies.model ?? env().OPENAI_MODEL;
+  const { maxCharacters } = resolveStyleOptions(styleOptions);
+  const createCompletion =
+    dependencies.createCompletion ??
+    ((request: CaptionCompletionRequest) =>
+      getClient().chat.completions.create(request));
 
   try {
-    const response = await getClient().chat.completions.create({
+    const response = await createCompletion({
       model,
       // Niedrige Temperatur: Hier ist Genauigkeit wichtiger als Kreativität.
-      temperature: 0.4,
-      max_tokens: 700,
+      temperature: 0.35,
+      max_tokens: 500,
       messages: [
-        { role: "system", content: SYSTEM_PROMPT },
-        { role: "user", content: buildVehiclePrompt(vehicle, company) },
+        { role: "system", content: buildInstagramSystemPrompt(styleOptions) },
+        {
+          role: "user",
+          content: buildVehiclePrompt(vehicle, company, styleOptions),
+        },
       ],
       response_format: {
         type: "json_schema",
@@ -221,12 +308,20 @@ export async function generateInstagramCaption(
           .filter((tag): tag is string => typeof tag === "string")
           .map((tag) => tag.replace(/^#+/, "").trim())
           .filter(Boolean)
-          .slice(0, 15)
+          .filter((tag, index, all) => all.indexOf(tag) === index)
+          .slice(0, 10)
       : [];
 
     if (!caption) {
       throw new UserFacingError(
         "Die KI hat einen leeren Text zurückgegeben. Bitte versuchen Sie es erneut.",
+        "SERVICE_UNAVAILABLE",
+      );
+    }
+
+    if (caption.length > maxCharacters) {
+      throw new UserFacingError(
+        `Die KI-Antwort war länger als ${maxCharacters} Zeichen. Bitte versuchen Sie es erneut.`,
         "SERVICE_UNAVAILABLE",
       );
     }
