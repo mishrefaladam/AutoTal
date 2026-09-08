@@ -85,11 +85,13 @@ export function SocialMediaManager({
   vehicles,
   drafts,
   openAiConfigured,
+  deploymentEnvironment,
   instagramConnected,
 }: {
   vehicles: VehicleOption[];
   drafts: SocialDraftListItem[];
   openAiConfigured: boolean;
+  deploymentEnvironment: string | null;
   instagramConnected: boolean;
 }) {
   const [selectedVehicleId, setSelectedVehicleId] = useState<string>(
@@ -138,8 +140,25 @@ export function SocialMediaManager({
               <code className="bg-background rounded px-1 py-0.5 text-xs">
                 OPENAI_API_KEY
               </code>{" "}
-              in den Umgebungsvariablen, um Texte erzeugen zu lassen. Bestehende
-              Beiträge können Sie weiterhin bearbeiten, freigeben und
+              in den Umgebungsvariablen, um Texte erzeugen zu lassen.
+              {/*
+               * Die Umgebung wird ausdrücklich genannt: Ein nur für Production
+               * hinterlegter Schlüssel greift auf einer Preview-Bereitstellung
+               * nicht – ohne diese Angabe sieht der Hinweis dort wie ein Fehler
+               * der Anwendung aus.
+               */}
+              {deploymentEnvironment && (
+                <>
+                  {" "}
+                  Diese Instanz läuft in der Umgebung{" "}
+                  <code className="bg-background rounded px-1 py-0.5 text-xs">
+                    {deploymentEnvironment}
+                  </code>
+                  ; dort muss die Variable gesetzt und danach neu bereitgestellt
+                  sein.
+                </>
+              )}{" "}
+              Bestehende Beiträge können Sie weiterhin bearbeiten, freigeben und
               veröffentlichen.
             </p>
           </div>

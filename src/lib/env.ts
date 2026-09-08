@@ -20,6 +20,9 @@ const optionalString = z
   .optional()
   .transform((value) => (value === "" ? undefined : value));
 
+/** Voreinstellung, solange OPENAI_MODEL nicht gesetzt ist. */
+const DEFAULT_OPENAI_MODEL = "gpt-4o-mini";
+
 const serverSchema = z.object({
   NODE_ENV: z
     .enum(["development", "test", "production"])
@@ -36,7 +39,20 @@ const serverSchema = z.object({
   CONTACT_INBOX_EMAIL: optionalString,
 
   OPENAI_API_KEY: optionalString,
-  OPENAI_MODEL: z.string().trim().default("gpt-4o-mini"),
+  /**
+   * Nur der Key entscheidet, ob die KI-Funktion verfügbar ist. Das Modell ist
+   * nie Pflicht.
+   *
+   * `.default()` allein genügt dafür nicht: Es greift ausschließlich bei
+   * `undefined`. Eine in Vercel angelegte, aber leer gelassene Variable kommt
+   * als leerer String an – der Aufruf ginge dann mit `model: ""` an OpenAI und
+   * schlüge fehl. Leere Werte werden deshalb wie "nicht gesetzt" behandelt.
+   */
+  OPENAI_MODEL: z
+    .string()
+    .trim()
+    .optional()
+    .transform((value) => (value ? value : DEFAULT_OPENAI_MODEL)),
 
   INSTAGRAM_APP_ID: optionalString,
   INSTAGRAM_APP_SECRET: optionalString,
@@ -114,6 +130,23 @@ export function isBlobStorageConfigured(): boolean {
 
 export function isEncryptionConfigured(): boolean {
   return Boolean(env().ENCRYPTION_KEY);
+}
+
+/**
+ * Umgebung, in der diese Instanz tatsächlich läuft: "production", "preview"
+ * oder "development". Vercel setzt die Variable selbst; sie ist nicht
+ * vertraulich und enthält keine Zugangsdaten.
+ *
+ * Der Wert beantwortet die Frage, an der die Einrichtung am häufigsten
+ * scheitert: Ein in der Production-Umgebung hinterlegter Schlüssel greift auf
+ * einer Preview-Bereitstellung nicht. Die Hinweise im Admin nennen die
+ * Umgebung deshalb ausdrücklich.
+ *
+ * Bewusst zur Laufzeit gelesen und ohne NEXT_PUBLIC_-Präfix: Solche Variablen
+ * backt der Build als Literal ein.
+ */
+export function deploymentEnvironment(): string | null {
+  return process.env.VERCEL_ENV?.trim() || null;
 }
 
 /**

@@ -3,7 +3,7 @@ import type { Metadata } from "next";
 import { AdminPageHeader } from "@/components/admin/admin-page-header";
 import { SocialMediaManager } from "@/components/admin/social-media-manager";
 import { getInstagramConnection } from "@/integrations/instagram";
-import { isOpenAIConfigured } from "@/lib/env";
+import { deploymentEnvironment, isOpenAIConfigured } from "@/lib/env";
 import {
   listSocialDrafts,
   listVehiclesForSocial,
@@ -35,6 +35,7 @@ export default async function AdminSocialMediaPage() {
         vehicles={vehicles}
         drafts={drafts}
         openAiConfigured={isOpenAIConfigured()}
+        deploymentEnvironment={deploymentEnvironment()}
         instagramConnected={connection.connected}
       />
     </>
