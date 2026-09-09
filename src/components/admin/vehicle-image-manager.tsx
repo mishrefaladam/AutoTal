@@ -16,6 +16,7 @@ import {
 import { AdminCard } from "@/components/admin/admin-page-header";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { MAX_UPLOAD_REQUEST_BYTES } from "@/integrations/storage/types";
 import {
   deleteVehicleImage,
   reorderVehicleImages,
@@ -60,10 +61,19 @@ export function VehicleImageManager({
     if (!files || files.length === 0) return;
 
     setError(null);
+
+    const selectedFiles = Array.from(files);
+    const totalBytes = selectedFiles.reduce((sum, file) => sum + file.size, 0);
+    if (totalBytes > MAX_UPLOAD_REQUEST_BYTES) {
+      setError("Bitte pro Upload insgesamt höchstens 4 MB auswählen.");
+      if (inputRef.current) inputRef.current.value = "";
+      return;
+    }
+
     setUploading(true);
 
     const body = new FormData();
-    for (const file of Array.from(files)) body.append("files", file);
+    for (const file of selectedFiles) body.append("files", file);
 
     try {
       const response = await fetch(`/api/admin/vehicles/${vehicleId}/images`, {
@@ -201,7 +211,7 @@ export function VehicleImageManager({
           <ImagePlus className="text-muted-foreground size-7" aria-hidden="true" />
           <span className="text-sm font-medium">Bilder auswählen</span>
           <span className="text-muted-foreground text-xs">
-            JPEG, PNG oder WebP · bis 8 MB je Bild
+            JPEG, PNG oder WebP · bis 4 MB insgesamt je Upload
           </span>
         </button>
       ) : (

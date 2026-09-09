@@ -74,5 +74,10 @@ export const ALLOWED_IMAGE_TYPES = [
   "image/webp",
 ] as const;
 
-/** Instagram lehnt Bilder über 8 MB ab; darunter bleiben wir mit Reserve. */
-export const MAX_IMAGE_BYTES = 8 * 1024 * 1024;
+/**
+ * Vercel Functions akzeptieren bei Server-Uploads höchstens 4,5 MB Request-
+ * Body. Multipart-Metadaten brauchen ebenfalls Platz, deshalb bleiben Datei
+ * und Gesamtanfrage bei höchstens 4 MB.
+ */
+export const MAX_UPLOAD_REQUEST_BYTES = 4 * 1024 * 1024;
+export const MAX_IMAGE_BYTES = MAX_UPLOAD_REQUEST_BYTES;

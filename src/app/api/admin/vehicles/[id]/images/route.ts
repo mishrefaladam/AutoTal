@@ -3,8 +3,10 @@ import { NextResponse, type NextRequest } from "next/server";
 import {
   ALLOWED_IMAGE_TYPES,
   MAX_IMAGE_BYTES,
+  MAX_UPLOAD_REQUEST_BYTES,
   getFileStorage,
 } from "@/integrations/storage";
+import type { FileStorage } from "@/integrations/storage";
 import { logger } from "@/lib/logger";
 import { prisma } from "@/lib/prisma";
 import { UserFacingError } from "@/lib/result";
@@ -40,6 +42,19 @@ export async function POST(
 
   const { id: vehicleId } = await context.params;
 
+  const declaredBytes = Number(request.headers.get("content-length"));
+  if (Number.isFinite(declaredBytes) && declaredBytes > MAX_UPLOAD_REQUEST_BYTES) {
+    logger.warn("Bildupload wegen Request-Größe abgewiesen", {
+      vehicleId,
+      declaredBytes,
+      maxBytes: MAX_UPLOAD_REQUEST_BYTES,
+    });
+    return NextResponse.json(
+      { error: "Bitte pro Upload insgesamt höchstens 4 MB auswählen." },
+      { status: 413 },
+    );
+  }
+
   const vehicle = await prisma.vehicle.findUnique({
     where: { id: vehicleId },
     select: { id: true, _count: { select: { images: true } } },
@@ -55,7 +70,13 @@ export async function POST(
   let formData: FormData;
   try {
     formData = await request.formData();
-  } catch {
+  } catch (error) {
+    logger.warn("Bildupload-Body konnte nicht gelesen werden", {
+      vehicleId,
+      declaredBytes: Number.isFinite(declaredBytes) ? declaredBytes : null,
+      contentType: request.headers.get("content-type"),
+      error,
+    });
     return NextResponse.json(
       { error: "Die Dateien konnten nicht gelesen werden." },
       { status: 400 },
@@ -68,6 +89,20 @@ export async function POST(
 
   if (files.length === 0) {
     return NextResponse.json({ error: "Keine Datei erhalten." }, { status: 400 });
+  }
+
+  const totalBytes = files.reduce((sum, file) => sum + file.size, 0);
+  if (totalBytes > MAX_UPLOAD_REQUEST_BYTES) {
+    logger.warn("Bildupload wegen Gesamtgröße abgewiesen", {
+      vehicleId,
+      fileCount: files.length,
+      totalBytes,
+      maxBytes: MAX_UPLOAD_REQUEST_BYTES,
+    });
+    return NextResponse.json(
+      { error: "Bitte pro Upload insgesamt höchstens 4 MB auswählen." },
+      { status: 413 },
+    );
   }
 
   if (files.length > MAX_FILES_PER_REQUEST) {
@@ -88,20 +123,52 @@ export async function POST(
     );
   }
 
-  const storage = getFileStorage();
+  let storage: FileStorage;
+  try {
+    storage = getFileStorage();
+  } catch (error) {
+    logger.error("Bildspeicher nicht verfügbar", {
+      vehicleId,
+      runtime: "nodejs",
+      environment: process.env.VERCEL_ENV ?? process.env.NODE_ENV,
+      credentialPresent: Boolean(process.env.BLOB_READ_WRITE_TOKEN?.trim()),
+      error,
+    });
+    return NextResponse.json(
+      { error: "Das Bild konnte nicht gespeichert werden." },
+      { status: 503 },
+    );
+  }
+
+  logger.info("Bildupload serverseitig gestartet", {
+    vehicleId,
+    userId: session.id,
+    fileCount: files.length,
+    totalBytes,
+    storage: storage.kind,
+    storageConfigured: storage.isConfigured(),
+    runtime: "nodejs",
+  });
   const created: { id: string; url: string }[] = [];
   const skipped: string[] = [];
+  const rejectionCounts = {
+    mimeType: 0,
+    fileSize: 0,
+    storageOrDatabase: 0,
+  };
 
   // Position fortlaufend weiterzählen, damit neue Bilder hinten anschließen.
   let position = vehicle._count.images;
 
   for (const file of files) {
     if (!ALLOWED_IMAGE_TYPES.includes(file.type as (typeof ALLOWED_IMAGE_TYPES)[number])) {
+      rejectionCounts.mimeType += 1;
       skipped.push(`${file.name}: nur JPEG, PNG oder WebP`);
       continue;
     }
 
     if (file.size > MAX_IMAGE_BYTES) {
+      rejectionCounts.fileSize += 1;
       skipped.push(
         `${file.name}: über ${Math.round(MAX_IMAGE_BYTES / 1024 / 1024)} MB`,
       );
@@ -129,6 +196,7 @@ export async function POST(
       created.push(image);
       position += 1;
     } catch (error) {
+      rejectionCounts.storageOrDatabase += 1;
       const message =
         error instanceof UserFacingError
           ? error.message
@@ -144,6 +212,7 @@ export async function POST(
     userId: session.id,
     created: created.length,
     skipped: skipped.length,
+    rejectionCounts,
     storage: storage.kind,
   });
 

@@ -198,18 +198,22 @@ Hochgeladene Fahrzeugbilder laufen über `src/integrations/storage`:
 
 | Umgebung | Speicher | Voraussetzung |
 | --- | --- | --- |
-| Produktion | Vercel Blob | `BLOB_READ_WRITE_TOKEN` |
+| Produktion | öffentlicher Vercel Blob Store | `BLOB_READ_WRITE_TOKEN` |
 | Entwicklung | `public/uploads/` | – |
 
 Auf Vercel ist das Dateisystem zur Laufzeit schreibgeschützt und bei jedem
 Deployment leer. Ohne Blob-Store lassen sich dort also **keine** Bilder
-hochladen; der Admin weist beim Bearbeiten eines Fahrzeugs darauf hin.
+hochladen; der Admin weist beim Bearbeiten eines Fahrzeugs darauf hin. Der
+Store muss als **Public** angelegt sein: Seine Zugriffsart lässt sich später
+nicht ändern, und die Bild-URLs müssen für `next/image` sowie Instagram ohne
+Vercel-Anmeldung erreichbar sein.
 
 Der Upload läuft über einen Route Handler
 (`/api/admin/vehicles/[id]/images`) statt über eine Server Action: Actions
 haben ein knappes Body-Limit, Fahrzeugfotos liegen regelmäßig darüber.
-Erlaubt sind JPEG, PNG und WebP bis 8 MB, höchstens 30 Bilder je Fahrzeug.
-Das erste Bild ist das Titelbild.
+Erlaubt sind JPEG, PNG und WebP bis insgesamt 4 MB je Upload, höchstens 30
+Bilder je Fahrzeug. Die 4-MB-Grenze lässt Reserve unter dem 4,5-MB-Body-Limit
+von Vercel Functions. Das erste Bild ist das Titelbild.
 
 ### Konventionen
 
@@ -295,8 +299,10 @@ Veröffentlichungs-Schnittstelle bereit.
    temporär setzen und `npm run db:seed` einmalig ausführen. Passwort danach
    ändern und die Seed-Variablen wieder entfernen. Beispielfahrzeuge werden in
    `NODE_ENV=production` nicht angelegt.
-5. **Vercel Blob** anlegen, wenn Fahrzeugbilder im Admin hochgeladen werden
-   sollen. Vercel setzt dann `BLOB_READ_WRITE_TOKEN`.
+5. Einen **öffentlichen Vercel Blob Store** anlegen, wenn Fahrzeugbilder im
+   Admin hochgeladen werden sollen. Vercel setzt dann
+   `BLOB_READ_WRITE_TOKEN`. Ein privater Store ist hier ungeeignet, weil
+   Instagram die Bild-URL beim Veröffentlichen direkt abrufen muss.
 6. **willhaben Widget-Lite-Einbettungscode** einsetzen, sobald willhaben den
    offiziellen Code bereitstellt.
 
