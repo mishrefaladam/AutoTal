@@ -14,6 +14,11 @@ export const INSTAGRAM_REQUIRED_SCOPES = [
   "instagram_business_content_publish",
 ] as const;
 
+export const INSTAGRAM_PUBLISH_PERMISSION_MESSAGE =
+  "Die Instagram-Verbindung besitzt nicht die erforderliche " +
+  "Veröffentlichungsberechtigung. Bitte Instagram unter Integrationen neu " +
+  "verbinden.";
+
 const INSTAGRAM_OAUTH_URL = "https://www.instagram.com/oauth/authorize";
 const INSTAGRAM_CODE_TOKEN_URL = "https://api.instagram.com/oauth/access_token";
 const INSTAGRAM_TOKEN_BASE_URL = "https://graph.instagram.com";
@@ -36,11 +41,17 @@ type OptionalInstagramApiConfig = {
 
 type InstagramErrorBody = {
   error?: {
+    type?: string;
     code?: number;
     error_subcode?: number;
+    message?: string;
+    error_user_title?: string;
+    error_user_msg?: string;
+    fbtrace_id?: string;
   };
   code?: number;
   error_type?: string;
+  error_message?: string;
 };
 
 export type InstagramProfile = {
@@ -52,6 +63,11 @@ export type InstagramPublishingLimit = {
   usage: number;
   total: number;
   durationSeconds: number | null;
+};
+
+export type InstagramPublishResult = {
+  postId: string;
+  permalink: string | null;
 };
 
 export function requireInstagramApiConfig(
@@ -96,6 +112,75 @@ function apiErrorCode(body: InstagramErrorBody): number | undefined {
   return body.error?.code ?? body.code;
 }
 
+function collectRequestSecrets(url: URL, init: RequestInit): string[] {
+  const secrets = new Set<string>();
+  const sensitiveParameter = /^(access_token|client_secret|code)$/i;
+
+  for (const [key, value] of url.searchParams) {
+    if (sensitiveParameter.test(key) && value) secrets.add(value);
+  }
+
+  const authorization = new Headers(init.headers).get("authorization");
+  if (authorization) {
+    secrets.add(authorization);
+    const bearerToken = authorization.match(/^Bearer\s+(.+)$/i)?.[1];
+    if (bearerToken) secrets.add(bearerToken);
+  }
+
+  if (init.body instanceof URLSearchParams || init.body instanceof FormData) {
+    for (const key of ["access_token", "client_secret", "code"]) {
+      const value = init.body.get(key);
+      if (typeof value === "string" && value) secrets.add(value);
+    }
+  }
+
+  return [...secrets];
+}
+
+function sanitizeMetaDiagnostic(
+  value: string | undefined,
+  secrets: readonly string[],
+): string | undefined {
+  if (!value) return undefined;
+
+  let sanitized = value
+    .replace(/\bBearer\s+[^\s,;]+/gi, "Bearer [redacted]")
+    .replace(
+      /((?:access[_-]?token|client[_-]?secret|authorization)\s*[=:]\s*)[^\s,;&]+/gi,
+      "$1[redacted]",
+    );
+
+  for (const secret of secrets) {
+    sanitized = sanitized.replaceAll(secret, "[redacted]");
+  }
+
+  return sanitized.slice(0, 1_000);
+}
+
+function metaErrorLogContext(
+  body: InstagramErrorBody,
+  secrets: readonly string[],
+) {
+  return {
+    errorType: body.error?.type ?? body.error_type,
+    apiCode: apiErrorCode(body),
+    errorSubcode: body.error?.error_subcode,
+    errorMessage: sanitizeMetaDiagnostic(
+      body.error?.message ?? body.error_message,
+      secrets,
+    ),
+    errorUserTitle: sanitizeMetaDiagnostic(
+      body.error?.error_user_title,
+      secrets,
+    ),
+    errorUserMessage: sanitizeMetaDiagnostic(
+      body.error?.error_user_msg,
+      secrets,
+    ),
+    fbtraceId: sanitizeMetaDiagnostic(body.error?.fbtrace_id, secrets),
+  };
+}
+
 function toUserFacingInstagramError(
   status: number,
   body: InstagramErrorBody,
@@ -106,6 +191,13 @@ function toUserFacingInstagramError(
     return new UserFacingError(
       "Der Instagram-Zugang wurde abgelehnt oder ist abgelaufen. Bitte " +
         "verbinden Sie das Konto unter \u201eIntegrationen\u201c erneut.",
+      "UNAUTHORIZED",
+    );
+  }
+
+  if (code === 200) {
+    return new UserFacingError(
+      INSTAGRAM_PUBLISH_PERMISSION_MESSAGE,
       "UNAUTHORIZED",
     );
   }
@@ -170,11 +262,11 @@ async function requestJson<T>(
 
   if (!response.ok) {
     // Keine URLs, Bodies oder Header loggen: Sie koennen Tokens enthalten.
+    const secrets = collectRequestSecrets(url, init);
     logger.error("Instagram-API hat einen Fehler gemeldet", {
       operation,
       status: response.status,
-      apiCode: apiErrorCode(body),
-      errorType: body.error_type,
+      ...metaErrorLogContext(body, secrets),
     });
     throw toUserFacingInstagramError(response.status, body);
   }
@@ -463,4 +555,71 @@ export async function getInstagramMediaPermalink(
   );
 
   return response.permalink ?? null;
+}
+
+/**
+ * Fuehrt genau einen Publishing-Versuch aus. Die Limit-Abfrage ist nur eine
+ * Komfortpruefung: Meta erzwingt das Limit letztlich bei `media_publish`.
+ * Insbesondere wird `media_publish` hier nie automatisch wiederholt.
+ */
+export async function publishInstagramImage(
+  input: {
+    accountId: string;
+    accessToken: string;
+    imageUrl: string;
+    caption: string;
+  },
+  fetcher: Fetcher = fetch,
+): Promise<InstagramPublishResult> {
+  const { accountId, accessToken } = input;
+
+  try {
+    const limit = await getInstagramPublishingLimit(
+      accountId,
+      accessToken,
+      fetcher,
+    );
+    if (limit && limit.total > 0 && limit.usage >= limit.total) {
+      throw new UserFacingError(
+        `Instagram hat das aktuelle Veröffentlichungslimit erreicht ` +
+          `(${limit.usage} von ${limit.total}). Bitte versuchen Sie es später erneut.`,
+        "RATE_LIMITED",
+      );
+    }
+  } catch (error) {
+    if (error instanceof UserFacingError && error.code === "RATE_LIMITED") {
+      throw error;
+    }
+
+    logger.warn("Instagram-Veröffentlichungslimit konnte nicht gelesen werden", {
+      accountId,
+      error,
+    });
+  }
+
+  const containerId = await createInstagramImageContainer(
+    accountId,
+    accessToken,
+    { imageUrl: input.imageUrl, caption: input.caption },
+    fetcher,
+  );
+  const postId = await publishInstagramImageContainer(
+    accountId,
+    accessToken,
+    containerId,
+    fetcher,
+  );
+
+  let permalink: string | null = null;
+  try {
+    permalink = await getInstagramMediaPermalink(
+      postId,
+      accessToken,
+      fetcher,
+    );
+  } catch {
+    logger.warn("Instagram-Permalink konnte nicht geladen werden", { postId });
+  }
+
+  return { postId, permalink };
 }

@@ -7,15 +7,13 @@ import { prisma } from "@/lib/prisma";
 import { UserFacingError } from "@/lib/result";
 
 import {
+  INSTAGRAM_PUBLISH_PERMISSION_MESSAGE,
   buildInstagramAuthorizationUrl,
-  createInstagramImageContainer,
   exchangeInstagramAuthorizationCode,
   exchangeInstagramLongLivedToken,
-  getInstagramMediaPermalink,
   getInstagramProfile,
-  getInstagramPublishingLimit,
   hasRequiredInstagramScopes,
-  publishInstagramImageContainer,
+  publishInstagramImage,
   refreshInstagramLongLivedToken,
   requireInstagramApiConfig,
 } from "./protocol";
@@ -286,8 +284,7 @@ async function loadCredential(): Promise<{
 
   if (!hasRequiredInstagramScopes(stored.scopes)) {
     throw new UserFacingError(
-      "Die gespeicherte Instagram-Verbindung verwendet den früheren " +
-        "Anmeldeweg. Bitte verbinden Sie das Konto unter \u201eIntegrationen\u201c neu.",
+      INSTAGRAM_PUBLISH_PERMISSION_MESSAGE,
       "NOT_CONFIGURED",
     );
   }
@@ -322,44 +319,11 @@ export async function publishImagePost(input: {
   instagramConfig();
   const { accessToken, accountId } = await loadCredential();
 
-  // Das echte Kontolimit ist dynamisch. Ein Fehler dieser Komfortabfrage darf
-  // einen ansonsten gueltigen Beitrag nicht verhindern.
-  try {
-    const limit = await getInstagramPublishingLimit(accountId, accessToken);
-    if (limit && limit.total > 0 && limit.usage >= limit.total) {
-      throw new UserFacingError(
-        `Instagram hat das aktuelle Veröffentlichungslimit erreicht ` +
-          `(${limit.usage} von ${limit.total}). Bitte versuchen Sie es später erneut.`,
-        "RATE_LIMITED",
-      );
-    }
-  } catch (error) {
-    if (error instanceof UserFacingError && error.code === "RATE_LIMITED") {
-      throw error;
-    }
-    logger.warn("Instagram-Veröffentlichungslimit konnte nicht gelesen werden", {
-      accountId,
-      error,
-    });
-  }
-
-  const containerId = await createInstagramImageContainer(
+  const { postId, permalink } = await publishInstagramImage({
     accountId,
     accessToken,
-    input,
-  );
-  const postId = await publishInstagramImageContainer(
-    accountId,
-    accessToken,
-    containerId,
-  );
-
-  let permalink: string | null = null;
-  try {
-    permalink = await getInstagramMediaPermalink(postId, accessToken);
-  } catch {
-    logger.warn("Instagram-Permalink konnte nicht geladen werden", { postId });
-  }
+    ...input,
+  });
 
   logger.info("Instagram-Beitrag veröffentlicht", { postId });
   return { postId, permalink };

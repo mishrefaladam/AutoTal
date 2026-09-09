@@ -5,6 +5,7 @@ import { describe, it } from "node:test";
 import { UserFacingError } from "@/lib/result";
 import {
   INSTAGRAM_GRAPH_API_VERSION,
+  INSTAGRAM_PUBLISH_PERMISSION_MESSAGE,
   INSTAGRAM_REQUIRED_SCOPES,
   buildInstagramAuthorizationUrl,
   createInstagramImageContainer,
@@ -14,6 +15,7 @@ import {
   getInstagramProfile,
   getInstagramPublishingLimit,
   hasRequiredInstagramScopes,
+  publishInstagramImage,
   publishInstagramImageContainer,
   refreshInstagramLongLivedToken,
   requireInstagramApiConfig,
@@ -243,6 +245,239 @@ describe("Instagram Account und Publishing", () => {
     );
   });
 
+  it("prüft die Quote und veröffentlicht bei verfügbarem Kontingent", async () => {
+    const { fetcher, calls } = createFetchSequence([
+      {
+        body: {
+          data: [
+            {
+              quota_usage: 7,
+              config: { quota_total: 100, quota_duration: 86_400 },
+            },
+          ],
+        },
+      },
+      { body: { id: "container-id" } },
+      { body: { id: "published-media-id" } },
+      { body: { permalink: "https://www.instagram.com/p/example/" } },
+    ]);
+
+    const result = await publishInstagramImage(
+      {
+        accountId: "ig-user",
+        accessToken: "token",
+        imageUrl: "https://autotal.at/car.jpg",
+        caption: "Fahrzeug",
+      },
+      fetcher,
+    );
+
+    assert.deepEqual(result, {
+      postId: "published-media-id",
+      permalink: "https://www.instagram.com/p/example/",
+    });
+    assert.deepEqual(
+      calls.map(({ url }) => url.pathname),
+      [
+        `/${INSTAGRAM_GRAPH_API_VERSION}/ig-user/content_publishing_limit`,
+        `/${INSTAGRAM_GRAPH_API_VERSION}/ig-user/media`,
+        `/${INSTAGRAM_GRAPH_API_VERSION}/ig-user/media_publish`,
+        `/${INSTAGRAM_GRAPH_API_VERSION}/published-media-id`,
+      ],
+    );
+  });
+
+  it("blockiert nur bei einer tatsächlich ausgeschöpften Quote", async () => {
+    const { fetcher, calls } = createFetchSequence([
+      {
+        body: {
+          quota_usage: 100,
+          config: { quota_total: 100, quota_duration: 86_400 },
+        },
+      },
+    ]);
+
+    await assert.rejects(
+      publishInstagramImage(
+        {
+          accountId: "ig-user",
+          accessToken: "token",
+          imageUrl: "https://autotal.at/car.jpg",
+          caption: "Fahrzeug",
+        },
+        fetcher,
+      ),
+      (error) =>
+        error instanceof UserFacingError && error.code === "RATE_LIMITED",
+    );
+    assert.equal(calls.length, 1);
+  });
+
+  it("protokolliert Meta Code 200 sicher und versucht danach /media", async () => {
+    const secretToken = "never-log-this-access-token";
+    const errors: string[] = [];
+    const warnings: string[] = [];
+    const previousError = console.error;
+    const previousWarn = console.warn;
+    console.error = (...args: unknown[]) => errors.push(args.join(" "));
+    console.warn = (...args: unknown[]) => warnings.push(args.join(" "));
+
+    try {
+      const { fetcher, calls } = createFetchSequence([
+        {
+          status: 400,
+          body: {
+            error: {
+              type: "IGApiException",
+              code: 200,
+              error_subcode: 2207013,
+              message: `Permissions error for ${secretToken}`,
+              error_user_title: "Veröffentlichung nicht möglich",
+              error_user_msg: "Bitte Berechtigung erneut erteilen.",
+              fbtrace_id: "safe-trace-id",
+            },
+          },
+        },
+        { body: { id: "container-id" } },
+        { body: { id: "published-media-id" } },
+        { body: { permalink: "https://www.instagram.com/p/example/" } },
+      ]);
+
+      const result = await publishInstagramImage(
+        {
+          accountId: "ig-user",
+          accessToken: secretToken,
+          imageUrl: "https://autotal.at/car.jpg",
+          caption: "Fahrzeug",
+        },
+        fetcher,
+      );
+
+      assert.equal(result.postId, "published-media-id");
+      assert.equal(
+        calls[1].url.pathname,
+        `/${INSTAGRAM_GRAPH_API_VERSION}/ig-user/media`,
+      );
+
+      const log = errors
+        .map((line) => JSON.parse(line) as Record<string, unknown>)
+        .find((entry) => entry.message === "Instagram-API hat einen Fehler gemeldet");
+      assert.ok(log);
+      assert.deepEqual(log.context, {
+        operation: "GET /ig-user/content_publishing_limit",
+        status: 400,
+        errorType: "IGApiException",
+        apiCode: 200,
+        errorSubcode: 2207013,
+        errorMessage: "Permissions error for [redacted]",
+        errorUserTitle: "Veröffentlichung nicht möglich",
+        errorUserMessage: "Bitte Berechtigung erneut erteilen.",
+        fbtraceId: "safe-trace-id",
+      });
+      assert.match(warnings.join("\n"), /konnte nicht gelesen werden/);
+      assert.doesNotMatch(`${errors.join("\n")}\n${warnings.join("\n")}`, new RegExp(secretToken));
+    } finally {
+      console.error = previousError;
+      console.warn = previousWarn;
+    }
+  });
+
+  it("übersetzt einen Permissions-Fehler von /media in den Reconnect-Hinweis", async () => {
+    const previousError = console.error;
+    console.error = () => undefined;
+
+    try {
+      const { fetcher, calls } = createFetchSequence([
+        {
+          body: {
+            quota_usage: 1,
+            config: { quota_total: 100, quota_duration: 86_400 },
+          },
+        },
+        {
+          status: 400,
+          body: {
+            error: {
+              type: "IGApiException",
+              code: 200,
+              message: "Permissions error",
+              fbtrace_id: "trace-id",
+            },
+          },
+        },
+      ]);
+
+      await assert.rejects(
+        publishInstagramImage(
+          {
+            accountId: "ig-user",
+            accessToken: "token",
+            imageUrl: "https://autotal.at/car.jpg",
+            caption: "Fahrzeug",
+          },
+          fetcher,
+        ),
+        (error) =>
+          error instanceof UserFacingError &&
+          error.code === "UNAUTHORIZED" &&
+          error.message === INSTAGRAM_PUBLISH_PERMISSION_MESSAGE,
+      );
+      assert.equal(
+        calls[1].url.pathname,
+        `/${INSTAGRAM_GRAPH_API_VERSION}/ig-user/media`,
+      );
+    } finally {
+      console.error = previousError;
+    }
+  });
+
+  it("wiederholt media_publish nach einem API-Fehler nicht automatisch", async () => {
+    const previousError = console.error;
+    console.error = () => undefined;
+
+    try {
+      const { fetcher, calls } = createFetchSequence([
+        { body: {} },
+        { body: { id: "container-id" } },
+        {
+          status: 503,
+          body: {
+            error: {
+              type: "IGApiException",
+              code: 2,
+              message: "Temporary service failure",
+              fbtrace_id: "trace-id",
+            },
+          },
+        },
+        { body: { id: "must-not-be-used" } },
+      ]);
+
+      await assert.rejects(
+        publishInstagramImage(
+          {
+            accountId: "ig-user",
+            accessToken: "token",
+            imageUrl: "https://autotal.at/car.jpg",
+            caption: "Fahrzeug",
+          },
+          fetcher,
+        ),
+        (error) =>
+          error instanceof UserFacingError &&
+          error.code === "SERVICE_UNAVAILABLE",
+      );
+
+      assert.equal(
+        calls.filter(({ url }) => url.pathname.endsWith("/media_publish")).length,
+        1,
+      );
+      assert.equal(calls.length, 3);
+    } finally {
+      console.error = previousError;
+    }
+  });
+
   it("verwendet media und media_publish auf graph.instagram.com", async () => {
     const { fetcher, calls } = createFetchSequence([
       { body: { id: "container-id" } },
@@ -342,6 +577,7 @@ describe("Sicherheits- und Callback-Verdrahtung", () => {
     assert.match(integration, /hasRequiredInstagramScopes\(stored\.scopes\)/);
     assert.match(integration, /tokenStatus:\s*"legacy"/);
     assert.match(adminUi, /Neu verbinden erforderlich/);
+    assert.match(adminUi, /nicht die erforderliche Veröffentlichungsberechtigung/);
   });
 
   it("dokumentiert den vorerst einzelnen Bild-Post", () => {

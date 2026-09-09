@@ -172,7 +172,7 @@ export function IntegrationsPanel({
                 <p className="font-medium">Neu verbinden erforderlich</p>
                 <p className="text-muted-foreground mt-1">
                   {instagram.tokenStatus === "legacy"
-                    ? "Die gespeicherte Verbindung verwendet den früheren Anmeldeweg und kann nicht weiterverwendet werden."
+                    ? "Die Instagram-Verbindung besitzt nicht die erforderliche Veröffentlichungsberechtigung. Bitte Instagram unter Integrationen neu verbinden."
                     : "Der gespeicherte Instagram-Zugang ist abgelaufen."}
                 </p>
                 {instagram.username && (
