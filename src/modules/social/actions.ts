@@ -3,7 +3,10 @@
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 
-import { publishImagePost } from "@/integrations/instagram";
+import {
+  INSTAGRAM_PUBLISH_OUTCOME_UNKNOWN_MESSAGE,
+  publishImagePost,
+} from "@/integrations/instagram";
 import {
   generateInstagramCaption,
   verifyCaptionFacts,
@@ -41,6 +44,10 @@ import { getVehicleByIdIncludingInactive } from "@/modules/vehicles/repository";
 function revalidateSocial() {
   revalidatePath("/admin/social-media");
 }
+
+const INSTAGRAM_PUBLISH_IN_PROGRESS_MARKER =
+  "__instagram_publish_in_progress__";
+const INSTAGRAM_PUBLISH_LOCK_TIMEOUT_MS = 2 * 60 * 1000;
 
 // ---------------------------------------------------------------------------
 // US-19: Caption generieren
@@ -322,6 +329,10 @@ export async function publishDraft(
         caption: true,
         hashtags: true,
         imageUrls: true,
+        externalPostId: true,
+        externalPermalink: true,
+        errorMessage: true,
+        lastAttemptAt: true,
         // Der Entwurf hält den Bildstand vom Zeitpunkt der Generierung fest.
         // Da ein Text auch ohne Bild erzeugt werden darf, muss ein danach
         // hochgeladenes Bild den Entwurf noch erreichen – sonst bliebe er
@@ -340,6 +351,58 @@ export async function publishDraft(
 
     if (!draft) {
       return fail("Dieser Entwurf wurde nicht gefunden.", { code: "NOT_FOUND" });
+    }
+
+    // Eine bereits gespeicherte Instagram Media ID ist der dauerhafte
+    // Idempotenz-Schluessel. Auch nach einem lokalen Folgefehler wird niemals
+    // ein zweiter Publish-Aufruf gesendet.
+    if (draft.externalPostId) {
+      await prisma.socialDraft.update({
+        where: { id: draftId },
+        data: {
+          status: "PUBLISHED",
+          publishedAt: new Date(),
+          errorMessage: null,
+        },
+      });
+      revalidateSocial();
+
+      return ok({
+        message: "Der Beitrag wurde bereits auf Instagram veröffentlicht.",
+        permalink: draft.externalPermalink,
+      });
+    }
+
+    if (draft.errorMessage === INSTAGRAM_PUBLISH_IN_PROGRESS_MARKER) {
+      const attemptAge = draft.lastAttemptAt
+        ? Date.now() - draft.lastAttemptAt.getTime()
+        : Number.POSITIVE_INFINITY;
+
+      if (attemptAge <= INSTAGRAM_PUBLISH_LOCK_TIMEOUT_MS) {
+        return fail(
+          "Die Instagram-Veröffentlichung läuft bereits. Bitte warten Sie " +
+            "einen Moment.",
+          { code: "CONFLICT" },
+        );
+      }
+
+      // Nach einem abgebrochenen Serverprozess ist unklar, ob Meta den
+      // Publish-Aufruf verarbeitet hat. Kein automatischer Neuversuch.
+      await prisma.socialDraft.updateMany({
+        where: {
+          id: draftId,
+          status: "APPROVED",
+          errorMessage: INSTAGRAM_PUBLISH_IN_PROGRESS_MARKER,
+        },
+        data: {
+          status: "FAILED",
+          errorMessage: INSTAGRAM_PUBLISH_OUTCOME_UNKNOWN_MESSAGE,
+        },
+      });
+      revalidateSocial();
+      return fail(INSTAGRAM_PUBLISH_OUTCOME_UNKNOWN_MESSAGE, {
+        code: "CONFLICT",
+      });
     }
 
     if (draft.status === "PUBLISHED") {
@@ -389,13 +452,45 @@ export async function publishDraft(
       .join("")
       .trim();
 
-    await prisma.socialDraft.update({
-      where: { id: draftId },
-      data: { lastAttemptAt: new Date() },
+    const attemptStartedAt = new Date();
+    const claimed = await prisma.socialDraft.updateMany({
+      where: {
+        id: draftId,
+        status: "APPROVED",
+        externalPostId: null,
+        errorMessage: draft.errorMessage,
+        lastAttemptAt: draft.lastAttemptAt,
+      },
+      data: {
+        errorMessage: INSTAGRAM_PUBLISH_IN_PROGRESS_MARKER,
+        lastAttemptAt: attemptStartedAt,
+      },
     });
 
+    if (claimed.count !== 1) {
+      return fail(
+        "Die Instagram-Veröffentlichung wurde bereits gestartet. Bitte " +
+          "warten Sie einen Moment.",
+        { code: "CONFLICT" },
+      );
+    }
+
     try {
-      const result = await publishImagePost({ imageUrl, caption: fullCaption });
+      const result = await publishImagePost(
+        { imageUrl, caption: fullCaption },
+        {
+          publishedMediaId: draft.externalPostId,
+          publishedPermalink: draft.externalPermalink,
+          onPublished: async (postId) => {
+            // Direkt nach Metas erfolgreicher Antwort persistieren, noch vor
+            // der optionalen Permalink-Abfrage und der finalen Statuspflege.
+            await prisma.socialDraft.update({
+              where: { id: draftId },
+              data: { externalPostId: postId },
+            });
+          },
+        },
+      );
 
       await prisma.socialDraft.update({
         where: { id: draftId },
@@ -405,7 +500,7 @@ export async function publishDraft(
           // Bild erst nach der Generierung dazugekommen ist.
           imageUrls: [imageUrl],
           publishedAt: new Date(),
-          externalPostId: result.postId,
+          externalPostId: result.postId ?? undefined,
           externalPermalink: result.permalink,
           errorMessage: null,
         },
@@ -424,7 +519,6 @@ export async function publishDraft(
         error instanceof UserFacingError
           ? error.message
           : "Die Veröffentlichung ist fehlgeschlagen. Bitte versuchen Sie es erneut.";
-
       await prisma.socialDraft.update({
         where: { id: draftId },
         data: {
@@ -438,7 +532,10 @@ export async function publishDraft(
       revalidateSocial();
 
       return fail(message, {
-        code: error instanceof UserFacingError ? error.code : "SERVICE_UNAVAILABLE",
+        code:
+          error instanceof UserFacingError
+            ? error.code
+            : "SERVICE_UNAVAILABLE",
       });
     }
   } catch (error) {
@@ -461,12 +558,19 @@ export async function retryPublish(
 
     const draft = await prisma.socialDraft.findUnique({
       where: { id: draftId },
-      select: { status: true, approvedAt: true },
+      select: {
+        status: true,
+        approvedAt: true,
+        errorMessage: true,
+        externalPostId: true,
+      },
     });
 
     if (!draft) {
       return fail("Dieser Entwurf wurde nicht gefunden.", { code: "NOT_FOUND" });
     }
+
+    if (draft.externalPostId) return publishDraft(draftId);
 
     if (draft.status !== "FAILED") {
       return fail(
@@ -482,10 +586,28 @@ export async function retryPublish(
       );
     }
 
-    await prisma.socialDraft.update({
-      where: { id: draftId },
+    if (draft.errorMessage === INSTAGRAM_PUBLISH_OUTCOME_UNKNOWN_MESSAGE) {
+      return fail(INSTAGRAM_PUBLISH_OUTCOME_UNKNOWN_MESSAGE, {
+        code: "CONFLICT",
+      });
+    }
+
+    const reset = await prisma.socialDraft.updateMany({
+      where: {
+        id: draftId,
+        status: "FAILED",
+        externalPostId: null,
+        errorMessage: draft.errorMessage,
+      },
       data: { status: "APPROVED", errorMessage: null },
     });
+
+    if (reset.count !== 1) {
+      return fail(
+        "Ein anderer Veröffentlichungsversuch wurde bereits gestartet.",
+        { code: "CONFLICT" },
+      );
+    }
 
     return publishDraft(draftId);
   } catch (error) {

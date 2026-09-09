@@ -1,7 +1,7 @@
 import "server-only";
 
 import { logger } from "@/lib/logger";
-import { UserFacingError } from "@/lib/result";
+import { UserFacingError, type ErrorCode } from "@/lib/result";
 
 /**
  * Zentrale Protokollkonfiguration fuer die Instagram API mit Instagram Login.
@@ -18,6 +18,17 @@ export const INSTAGRAM_PUBLISH_PERMISSION_MESSAGE =
   "Die Instagram-Verbindung besitzt nicht die erforderliche " +
   "Veröffentlichungsberechtigung. Bitte Instagram unter Integrationen neu " +
   "verbinden.";
+
+export const INSTAGRAM_PUBLISH_OUTCOME_UNKNOWN_MESSAGE =
+  "Instagram hat auf die Veröffentlichung nicht eindeutig geantwortet. Bitte " +
+  "prüfen Sie zuerst den Instagram-Account. Falls der Beitrag dort nicht " +
+  "vorhanden ist, bearbeiten und geben Sie den Entwurf erneut frei.";
+
+export const INSTAGRAM_CONTAINER_POLL_DELAYS_MS = [
+  1_000, 1_000, 1_500, 1_500, 2_000, 2_000,
+] as const;
+
+const INSTAGRAM_PUBLISH_RETRY_POLL_DELAYS_MS = [1_000, 1_500, 1_500] as const;
 
 const INSTAGRAM_OAUTH_URL = "https://www.instagram.com/oauth/authorize";
 const INSTAGRAM_CODE_TOKEN_URL = "https://api.instagram.com/oauth/access_token";
@@ -66,9 +77,51 @@ export type InstagramPublishingLimit = {
 };
 
 export type InstagramPublishResult = {
-  postId: string;
+  postId: string | null;
   permalink: string | null;
+  alreadyPublished: boolean;
 };
+
+export type InstagramContainerStatusCode =
+  | "IN_PROGRESS"
+  | "FINISHED"
+  | "ERROR"
+  | "EXPIRED"
+  | "PUBLISHED";
+
+type InstagramApiErrorDetails = {
+  operation: string;
+  status: number;
+  apiCode?: number;
+  errorSubcode?: number;
+};
+
+export class InstagramApiRequestError extends UserFacingError {
+  readonly operation: string;
+  readonly status: number;
+  readonly apiCode: number | undefined;
+  readonly errorSubcode: number | undefined;
+
+  constructor(
+    message: string,
+    code: ErrorCode,
+    details: InstagramApiErrorDetails,
+  ) {
+    super(message, code);
+    this.name = "InstagramApiRequestError";
+    this.operation = details.operation;
+    this.status = details.status;
+    this.apiCode = details.apiCode;
+    this.errorSubcode = details.errorSubcode;
+  }
+}
+
+export class InstagramPublishOutcomeUnknownError extends UserFacingError {
+  constructor() {
+    super(INSTAGRAM_PUBLISH_OUTCOME_UNKNOWN_MESSAGE, "CONFLICT");
+    this.name = "InstagramPublishOutcomeUnknownError";
+  }
+}
 
 export function requireInstagramApiConfig(
   input: OptionalInstagramApiConfig,
@@ -186,6 +239,7 @@ function toUserFacingInstagramError(
   body: InstagramErrorBody,
 ): UserFacingError {
   const code = apiErrorCode(body);
+  const subcode = body.error?.error_subcode;
 
   if (status === 401 || code === 190) {
     return new UserFacingError(
@@ -207,6 +261,14 @@ function toUserFacingInstagramError(
       "Instagram hat das aktuelle Veröffentlichungslimit erreicht. Bitte " +
         "versuchen Sie es später erneut.",
       "RATE_LIMITED",
+    );
+  }
+
+  if (code === 9007 && subcode === 2207027) {
+    return new UserFacingError(
+      "Instagram verarbeitet das Bild noch. Bitte versuchen Sie die " +
+        "Veröffentlichung in einem Moment erneut.",
+      "SERVICE_UNAVAILABLE",
     );
   }
 
@@ -252,6 +314,11 @@ async function requestJson<T>(
       operation,
       errorType: error instanceof Error ? error.name : "UnknownError",
     });
+
+    if (operation.endsWith("/media_publish")) {
+      throw new InstagramPublishOutcomeUnknownError();
+    }
+
     throw new UserFacingError(
       "Instagram konnte nicht erreicht werden. Bitte versuchen Sie es erneut.",
       "SERVICE_UNAVAILABLE",
@@ -268,7 +335,22 @@ async function requestJson<T>(
       status: response.status,
       ...metaErrorLogContext(body, secrets),
     });
-    throw toUserFacingInstagramError(response.status, body);
+    const userFacingError = toUserFacingInstagramError(response.status, body);
+
+    if (operation.endsWith("/media_publish") && response.status >= 500) {
+      throw new InstagramPublishOutcomeUnknownError();
+    }
+
+    throw new InstagramApiRequestError(
+      userFacingError.message,
+      userFacingError.code,
+      {
+        operation,
+        status: response.status,
+        apiCode: apiErrorCode(body),
+        errorSubcode: body.error?.error_subcode,
+      },
+    );
   }
 
   return body as T;
@@ -517,6 +599,108 @@ export async function createInstagramImageContainer(
   return response.id;
 }
 
+export async function getInstagramContainerStatus(
+  containerId: string,
+  accessToken: string,
+  fetcher: Fetcher = fetch,
+): Promise<{ statusCode: string; status: string | null }> {
+  const response = await graphRequest<{
+    status_code?: string;
+    status?: string;
+    data?: Array<{ status_code?: string; status?: string }>;
+  }>(
+    `/${containerId}`,
+    accessToken,
+    { fields: "status_code,status" },
+    "GET",
+    fetcher,
+  );
+
+  const container = response.data?.[0] ?? response;
+
+  return {
+    statusCode:
+      typeof container.status_code === "string"
+        ? container.status_code.toUpperCase()
+        : "UNKNOWN",
+    status: typeof container.status === "string" ? container.status : null,
+  };
+}
+
+type ContainerPollingOptions = {
+  delaysMs?: readonly number[];
+  sleep?: (milliseconds: number) => Promise<void>;
+};
+
+const sleep = (milliseconds: number) =>
+  new Promise<void>((resolve) => setTimeout(resolve, milliseconds));
+
+export async function waitForInstagramContainer(
+  containerId: string,
+  accessToken: string,
+  fetcher: Fetcher = fetch,
+  options: ContainerPollingOptions = {},
+): Promise<"FINISHED" | "PUBLISHED"> {
+  const delaysMs = options.delaysMs ?? INSTAGRAM_CONTAINER_POLL_DELAYS_MS;
+  const wait = options.sleep ?? sleep;
+
+  for (const [index, delayMs] of delaysMs.entries()) {
+    await wait(delayMs);
+    const attempt = index + 1;
+    const container = await getInstagramContainerStatus(
+      containerId,
+      accessToken,
+      fetcher,
+    );
+
+    logger.info("Instagram container status", {
+      containerId,
+      attempt,
+      statusCode: container.statusCode,
+      status: container.status,
+    });
+
+    if (container.statusCode === "FINISHED") return "FINISHED";
+    if (container.statusCode === "PUBLISHED") return "PUBLISHED";
+
+    if (container.statusCode === "ERROR") {
+      throw new UserFacingError(
+        "Instagram konnte das Bild nicht verarbeiten. Bitte prüfen Sie das " +
+          "Fahrzeugbild und versuchen Sie es erneut.",
+        "SERVICE_UNAVAILABLE",
+      );
+    }
+
+    if (container.statusCode === "EXPIRED") {
+      throw new UserFacingError(
+        "Der Instagram-Mediencontainer ist abgelaufen. Bitte versuchen Sie " +
+          "die Veröffentlichung erneut; dabei wird ein neuer Container erstellt.",
+        "SERVICE_UNAVAILABLE",
+      );
+    }
+
+    if (container.statusCode !== "IN_PROGRESS") {
+      logger.error("Unbekannter Instagram-Containerstatus", {
+        containerId,
+        attempt,
+        statusCode: container.statusCode,
+        status: container.status,
+      });
+      throw new UserFacingError(
+        "Instagram hat einen unbekannten Verarbeitungsstatus gemeldet. Bitte " +
+          "versuchen Sie es später erneut.",
+        "SERVICE_UNAVAILABLE",
+      );
+    }
+  }
+
+  throw new UserFacingError(
+    "Instagram verarbeitet das Bild noch. Bitte versuchen Sie die " +
+      "Veröffentlichung in einem Moment erneut.",
+    "SERVICE_UNAVAILABLE",
+  );
+}
+
 export async function publishInstagramImageContainer(
   accountId: string,
   accessToken: string,
@@ -532,10 +716,7 @@ export async function publishInstagramImageContainer(
   );
 
   if (!response.id) {
-    throw new UserFacingError(
-      "Instagram hat den Beitrag nicht veröffentlicht.",
-      "SERVICE_UNAVAILABLE",
-    );
+    throw new InstagramPublishOutcomeUnknownError();
   }
 
   return response.id;
@@ -560,7 +741,8 @@ export async function getInstagramMediaPermalink(
 /**
  * Fuehrt genau einen Publishing-Versuch aus. Die Limit-Abfrage ist nur eine
  * Komfortpruefung: Meta erzwingt das Limit letztlich bei `media_publish`.
- * Insbesondere wird `media_publish` hier nie automatisch wiederholt.
+ * Nur fuer Metas eindeutigem "Media ID is not available" darf nach erneuter
+ * Statuspruefung genau ein kontrollierter `media_publish`-Retry erfolgen.
  */
 export async function publishInstagramImage(
   input: {
@@ -568,10 +750,24 @@ export async function publishInstagramImage(
     accessToken: string;
     imageUrl: string;
     caption: string;
+    publishedMediaId?: string | null;
+    publishedPermalink?: string | null;
   },
   fetcher: Fetcher = fetch,
+  options: ContainerPollingOptions & {
+    retryDelaysMs?: readonly number[];
+    onPublished?: (postId: string) => Promise<void>;
+  } = {},
 ): Promise<InstagramPublishResult> {
   const { accountId, accessToken } = input;
+
+  if (input.publishedMediaId) {
+    return {
+      postId: input.publishedMediaId,
+      permalink: input.publishedPermalink ?? null,
+      alreadyPublished: true,
+    };
+  }
 
   try {
     const limit = await getInstagramPublishingLimit(
@@ -603,12 +799,75 @@ export async function publishInstagramImage(
     { imageUrl: input.imageUrl, caption: input.caption },
     fetcher,
   );
-  const postId = await publishInstagramImageContainer(
-    accountId,
-    accessToken,
+  const containerState = await waitForInstagramContainer(
     containerId,
+    accessToken,
     fetcher,
+    options,
   );
+
+  if (containerState === "PUBLISHED") {
+    return { postId: null, permalink: null, alreadyPublished: true };
+  }
+
+  let postId: string;
+  try {
+    postId = await publishInstagramImageContainer(
+      accountId,
+      accessToken,
+      containerId,
+      fetcher,
+    );
+  } catch (error) {
+    const isMediaNotAvailable =
+      error instanceof InstagramApiRequestError &&
+      error.apiCode === 9007 &&
+      error.errorSubcode === 2207027;
+
+    if (!isMediaNotAvailable) throw error;
+
+    logger.warn("Instagram-Medium war beim Publish noch nicht verfügbar", {
+      containerId,
+      apiCode: error.apiCode,
+      errorSubcode: error.errorSubcode,
+    });
+
+    const retryState = await waitForInstagramContainer(
+      containerId,
+      accessToken,
+      fetcher,
+      {
+        delaysMs:
+          options.retryDelaysMs ?? INSTAGRAM_PUBLISH_RETRY_POLL_DELAYS_MS,
+        sleep: options.sleep,
+      },
+    );
+
+    if (retryState === "PUBLISHED") {
+      return { postId: null, permalink: null, alreadyPublished: true };
+    }
+
+    // Genau ein Retry fuer den eindeutig abgelehnten 9007/2207027-Aufruf.
+    postId = await publishInstagramImageContainer(
+      accountId,
+      accessToken,
+      containerId,
+      fetcher,
+    );
+  }
+
+  if (options.onPublished) {
+    try {
+      await options.onPublished(postId);
+    } catch (error) {
+      logger.error("Instagram Media ID konnte nicht persistiert werden", {
+        containerId,
+        postId,
+        errorType: error instanceof Error ? error.name : "UnknownError",
+      });
+      throw new InstagramPublishOutcomeUnknownError();
+    }
+  }
 
   let permalink: string | null = null;
   try {
@@ -621,5 +880,5 @@ export async function publishInstagramImage(
     logger.warn("Instagram-Permalink konnte nicht geladen werden", { postId });
   }
 
-  return { postId, permalink };
+  return { postId, permalink, alreadyPublished: false };
 }

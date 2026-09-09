@@ -5,8 +5,10 @@ import { describe, it } from "node:test";
 import { UserFacingError } from "@/lib/result";
 import {
   INSTAGRAM_GRAPH_API_VERSION,
+  INSTAGRAM_PUBLISH_OUTCOME_UNKNOWN_MESSAGE,
   INSTAGRAM_PUBLISH_PERMISSION_MESSAGE,
   INSTAGRAM_REQUIRED_SCOPES,
+  InstagramPublishOutcomeUnknownError,
   buildInstagramAuthorizationUrl,
   createInstagramImageContainer,
   exchangeInstagramAuthorizationCode,
@@ -26,6 +28,27 @@ const CONFIG = {
   appSecret: "instagram-app-secret",
   redirectUri: "https://autotal.at/api/integrations/instagram/callback",
 };
+
+const NO_WAIT = async () => undefined;
+
+async function withMutedConsole<T>(callback: () => Promise<T>): Promise<T> {
+  const previous = {
+    log: console.log,
+    warn: console.warn,
+    error: console.error,
+  };
+  console.log = () => undefined;
+  console.warn = () => undefined;
+  console.error = () => undefined;
+
+  try {
+    return await callback();
+  } finally {
+    console.log = previous.log;
+    console.warn = previous.warn;
+    console.error = previous.error;
+  }
+}
 
 type MockResponse = {
   body: unknown;
@@ -258,6 +281,7 @@ describe("Instagram Account und Publishing", () => {
         },
       },
       { body: { id: "container-id" } },
+      { body: { status_code: "FINISHED", status: "Container fertig" } },
       { body: { id: "published-media-id" } },
       { body: { permalink: "https://www.instagram.com/p/example/" } },
     ]);
@@ -270,17 +294,20 @@ describe("Instagram Account und Publishing", () => {
         caption: "Fahrzeug",
       },
       fetcher,
+      { sleep: NO_WAIT },
     );
 
     assert.deepEqual(result, {
       postId: "published-media-id",
       permalink: "https://www.instagram.com/p/example/",
+      alreadyPublished: false,
     });
     assert.deepEqual(
       calls.map(({ url }) => url.pathname),
       [
         `/${INSTAGRAM_GRAPH_API_VERSION}/ig-user/content_publishing_limit`,
         `/${INSTAGRAM_GRAPH_API_VERSION}/ig-user/media`,
+        `/${INSTAGRAM_GRAPH_API_VERSION}/container-id`,
         `/${INSTAGRAM_GRAPH_API_VERSION}/ig-user/media_publish`,
         `/${INSTAGRAM_GRAPH_API_VERSION}/published-media-id`,
       ],
@@ -339,6 +366,7 @@ describe("Instagram Account und Publishing", () => {
           },
         },
         { body: { id: "container-id" } },
+        { body: { status_code: "FINISHED", status: "Container fertig" } },
         { body: { id: "published-media-id" } },
         { body: { permalink: "https://www.instagram.com/p/example/" } },
       ]);
@@ -351,6 +379,7 @@ describe("Instagram Account und Publishing", () => {
           caption: "Fahrzeug",
         },
         fetcher,
+        { sleep: NO_WAIT },
       );
 
       assert.equal(result.postId, "published-media-id");
@@ -439,6 +468,7 @@ describe("Instagram Account und Publishing", () => {
       const { fetcher, calls } = createFetchSequence([
         { body: {} },
         { body: { id: "container-id" } },
+        { body: { status_code: "FINISHED", status: "Container fertig" } },
         {
           status: 503,
           body: {
@@ -462,20 +492,329 @@ describe("Instagram Account und Publishing", () => {
             caption: "Fahrzeug",
           },
           fetcher,
+          { sleep: NO_WAIT },
         ),
         (error) =>
-          error instanceof UserFacingError &&
-          error.code === "SERVICE_UNAVAILABLE",
+          error instanceof InstagramPublishOutcomeUnknownError &&
+          error.message === INSTAGRAM_PUBLISH_OUTCOME_UNKNOWN_MESSAGE,
       );
 
       assert.equal(
         calls.filter(({ url }) => url.pathname.endsWith("/media_publish")).length,
         1,
       );
-      assert.equal(calls.length, 3);
+      assert.equal(calls.length, 4);
     } finally {
       console.error = previousError;
     }
+  });
+
+  it("wartet bei IN_PROGRESS bis FINISHED und publiziert genau einmal", async () => {
+    await withMutedConsole(async () => {
+      const { fetcher, calls } = createFetchSequence([
+        { body: {} },
+        { body: { id: "container-id" } },
+        { body: { status_code: "IN_PROGRESS", status: "Verarbeitung" } },
+        { body: { status_code: "IN_PROGRESS", status: "Verarbeitung" } },
+        { body: { status_code: "FINISHED", status: "Fertig" } },
+        { body: { id: "published-media-id" } },
+        { body: { permalink: "https://www.instagram.com/p/example/" } },
+      ]);
+
+      const result = await publishInstagramImage(
+        {
+          accountId: "ig-user",
+          accessToken: "token",
+          imageUrl: "https://autotal.at/car.jpg",
+          caption: "Fahrzeug",
+        },
+        fetcher,
+        { delaysMs: [0, 0, 0], sleep: NO_WAIT },
+      );
+
+      assert.equal(result.postId, "published-media-id");
+      assert.equal(
+        calls.filter(({ url }) => url.pathname.endsWith("/media_publish")).length,
+        1,
+      );
+      assert.equal(
+        calls.filter(({ url }) => url.pathname.endsWith("/container-id")).length,
+        3,
+      );
+    });
+  });
+
+  for (const scenario of [
+    {
+      statusCode: "ERROR",
+      message: /konnte das Bild nicht verarbeiten/,
+    },
+    {
+      statusCode: "EXPIRED",
+      message: /Mediencontainer ist abgelaufen/,
+    },
+  ]) {
+    it(`bricht bei ${scenario.statusCode} ohne media_publish ab`, async () => {
+      await withMutedConsole(async () => {
+        const { fetcher, calls } = createFetchSequence([
+          { body: {} },
+          { body: { id: "container-id" } },
+          { body: { status_code: scenario.statusCode } },
+        ]);
+
+        await assert.rejects(
+          publishInstagramImage(
+            {
+              accountId: "ig-user",
+              accessToken: "token",
+              imageUrl: "https://autotal.at/car.jpg",
+              caption: "Fahrzeug",
+            },
+            fetcher,
+            { delaysMs: [0], sleep: NO_WAIT },
+          ),
+          (error) =>
+            error instanceof UserFacingError && scenario.message.test(error.message),
+        );
+        assert.equal(
+          calls.filter(({ url }) => url.pathname.endsWith("/media_publish"))
+            .length,
+          0,
+        );
+      });
+    });
+  }
+
+  it("behandelt PUBLISHED als veröffentlicht und sendet kein media_publish", async () => {
+    await withMutedConsole(async () => {
+      const { fetcher, calls } = createFetchSequence([
+        { body: {} },
+        { body: { id: "container-id" } },
+        { body: { status_code: "PUBLISHED", status: "Veröffentlicht" } },
+      ]);
+
+      const result = await publishInstagramImage(
+        {
+          accountId: "ig-user",
+          accessToken: "token",
+          imageUrl: "https://autotal.at/car.jpg",
+          caption: "Fahrzeug",
+        },
+        fetcher,
+        { delaysMs: [0], sleep: NO_WAIT },
+      );
+
+      assert.deepEqual(result, {
+        postId: null,
+        permalink: null,
+        alreadyPublished: true,
+      });
+      assert.equal(
+        calls.filter(({ url }) => url.pathname.endsWith("/media_publish")).length,
+        0,
+      );
+    });
+  });
+
+  it("beendet das Polling nach dem Maximum mit der Timeout-Meldung", async () => {
+    await withMutedConsole(async () => {
+      const { fetcher, calls } = createFetchSequence([
+        { body: {} },
+        { body: { id: "container-id" } },
+        { body: { status_code: "IN_PROGRESS" } },
+        { body: { status_code: "IN_PROGRESS" } },
+        { body: { status_code: "IN_PROGRESS" } },
+      ]);
+
+      await assert.rejects(
+        publishInstagramImage(
+          {
+            accountId: "ig-user",
+            accessToken: "token",
+            imageUrl: "https://autotal.at/car.jpg",
+            caption: "Fahrzeug",
+          },
+          fetcher,
+          { delaysMs: [0, 0, 0], sleep: NO_WAIT },
+        ),
+        (error) =>
+          error instanceof UserFacingError &&
+          error.message ===
+            "Instagram verarbeitet das Bild noch. Bitte versuchen Sie die Veröffentlichung in einem Moment erneut.",
+      );
+      assert.equal(
+        calls.filter(({ url }) => url.pathname.endsWith("/container-id")).length,
+        3,
+      );
+      assert.equal(
+        calls.filter(({ url }) => url.pathname.endsWith("/media_publish")).length,
+        0,
+      );
+    });
+  });
+
+  it("bricht bei unbekanntem Status sicher ab und loggt keinen Token", async () => {
+    const secretToken = "status-check-secret-token";
+    const logs: string[] = [];
+    const previousLog = console.log;
+    const previousError = console.error;
+    console.log = (...args: unknown[]) => logs.push(args.join(" "));
+    console.error = (...args: unknown[]) => logs.push(args.join(" "));
+
+    try {
+      const { fetcher, calls } = createFetchSequence([
+        { body: {} },
+        { body: { id: "container-id" } },
+        { body: { status_code: "UNEXPECTED", status: "Unbekannt" } },
+      ]);
+
+      await assert.rejects(
+        publishInstagramImage(
+          {
+            accountId: "ig-user",
+            accessToken: secretToken,
+            imageUrl: "https://autotal.at/car.jpg",
+            caption: "Fahrzeug",
+          },
+          fetcher,
+          { delaysMs: [0], sleep: NO_WAIT },
+        ),
+        (error) =>
+          error instanceof UserFacingError &&
+          /unbekannten Verarbeitungsstatus/.test(error.message),
+      );
+      assert.equal(
+        calls.filter(({ url }) => url.pathname.endsWith("/media_publish")).length,
+        0,
+      );
+      assert.match(logs.join("\n"), /"containerId":"container-id"/);
+      assert.match(logs.join("\n"), /"attempt":1/);
+      assert.match(logs.join("\n"), /"statusCode":"UNEXPECTED"/);
+      assert.doesNotMatch(logs.join("\n"), new RegExp(secretToken));
+    } finally {
+      console.log = previousLog;
+      console.error = previousError;
+    }
+  });
+
+  it("prüft bei 9007/2207027 erneut und erlaubt genau einen Publish-Retry", async () => {
+    await withMutedConsole(async () => {
+      const { fetcher, calls } = createFetchSequence([
+        { body: {} },
+        { body: { id: "container-id" } },
+        { body: { status_code: "FINISHED" } },
+        {
+          status: 400,
+          body: {
+            error: {
+              type: "IGApiException",
+              code: 9007,
+              error_subcode: 2207027,
+              message: "Media ID is not available",
+              error_user_msg:
+                "Die Medien können noch nicht veröffentlicht werden. Bitte warte noch einen Moment.",
+              fbtrace_id: "trace-id",
+            },
+          },
+        },
+        { body: { status_code: "FINISHED" } },
+        { body: { id: "published-media-id" } },
+        { body: { permalink: "https://www.instagram.com/p/example/" } },
+      ]);
+
+      const result = await publishInstagramImage(
+        {
+          accountId: "ig-user",
+          accessToken: "token",
+          imageUrl: "https://autotal.at/car.jpg",
+          caption: "Fahrzeug",
+        },
+        fetcher,
+        {
+          delaysMs: [0],
+          retryDelaysMs: [0],
+          sleep: NO_WAIT,
+        },
+      );
+
+      assert.equal(result.postId, "published-media-id");
+      assert.equal(
+        calls.filter(({ url }) => url.pathname.endsWith("/media_publish")).length,
+        2,
+      );
+      assert.equal(
+        calls.filter(({ url }) => url.pathname.endsWith("/container-id")).length,
+        2,
+      );
+    });
+  });
+
+  it("sendet nach 9007 keinen Retry, wenn der Container PUBLISHED ist", async () => {
+    await withMutedConsole(async () => {
+      const { fetcher, calls } = createFetchSequence([
+        { body: {} },
+        { body: { id: "container-id" } },
+        { body: { status_code: "FINISHED" } },
+        {
+          status: 400,
+          body: {
+            error: {
+              type: "IGApiException",
+              code: 9007,
+              error_subcode: 2207027,
+              message: "Media ID is not available",
+            },
+          },
+        },
+        { body: { status_code: "PUBLISHED" } },
+      ]);
+
+      const result = await publishInstagramImage(
+        {
+          accountId: "ig-user",
+          accessToken: "token",
+          imageUrl: "https://autotal.at/car.jpg",
+          caption: "Fahrzeug",
+        },
+        fetcher,
+        {
+          delaysMs: [0],
+          retryDelaysMs: [0],
+          sleep: NO_WAIT,
+        },
+      );
+
+      assert.equal(result.alreadyPublished, true);
+      assert.equal(
+        calls.filter(({ url }) => url.pathname.endsWith("/media_publish")).length,
+        1,
+      );
+    });
+  });
+
+  it("überspringt alle API-Aufrufe bei vorhandener Instagram Media ID", async () => {
+    const { fetcher, calls } = createFetchSequence([]);
+
+    assert.deepEqual(
+      await publishInstagramImage(
+        {
+          accountId: "ig-user",
+          accessToken: "token",
+          imageUrl: "https://autotal.at/car.jpg",
+          caption: "Fahrzeug",
+          publishedMediaId: "existing-media-id",
+          publishedPermalink: "https://www.instagram.com/p/existing/",
+        },
+        fetcher,
+        { sleep: NO_WAIT },
+      ),
+      {
+        postId: "existing-media-id",
+        permalink: "https://www.instagram.com/p/existing/",
+        alreadyPublished: true,
+      },
+    );
+    assert.equal(calls.length, 0);
   });
 
   it("verwendet media und media_publish auf graph.instagram.com", async () => {
@@ -532,6 +871,7 @@ describe("Sicherheits- und Callback-Verdrahtung", () => {
     "src/modules/social/instagram-actions.ts",
     "utf8",
   );
+  const socialActions = readFileSync("src/modules/social/actions.ts", "utf8");
   const adminUi = readFileSync(
     "src/components/admin/integrations-panel.tsx",
     "utf8",
@@ -585,6 +925,35 @@ describe("Sicherheits- und Callback-Verdrahtung", () => {
     assert.match(
       readme,
       /Instagram Carousel \/ mehrere Bilder sind noch nicht implementiert/,
+    );
+  });
+
+  it("persistiert die Media ID sofort und sperrt parallele Retries", () => {
+    const publishCall = socialActions.indexOf("publishImagePost(");
+    const immediatePersistence = socialActions.indexOf(
+      "externalPostId: postId",
+      publishCall,
+    );
+    const finalPublishedStatus = socialActions.indexOf(
+      'status: "PUBLISHED"',
+      immediatePersistence,
+    );
+
+    assert.ok(publishCall >= 0);
+    assert.ok(immediatePersistence > publishCall);
+    assert.ok(finalPublishedStatus > immediatePersistence);
+    assert.match(socialActions, /INSTAGRAM_PUBLISH_IN_PROGRESS_MARKER/);
+    assert.match(
+      socialActions,
+      /claimed\.count\s*!==\s*1/,
+    );
+    assert.match(
+      socialActions,
+      /draft\.externalPostId[\s\S]*?return ok\(/,
+    );
+    assert.match(
+      socialActions,
+      /errorMessage\s*===\s*INSTAGRAM_PUBLISH_OUTCOME_UNKNOWN_MESSAGE/,
     );
   });
 

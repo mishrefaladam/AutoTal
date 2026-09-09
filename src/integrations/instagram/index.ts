@@ -18,6 +18,11 @@ import {
   requireInstagramApiConfig,
 } from "./protocol";
 
+export {
+  INSTAGRAM_PUBLISH_OUTCOME_UNKNOWN_MESSAGE,
+  InstagramPublishOutcomeUnknownError,
+} from "./protocol";
+
 /**
  * Instagram API mit Instagram Login.
  *
@@ -306,27 +311,44 @@ async function loadCredential(): Promise<{
 }
 
 export type PublishResult = {
-  postId: string;
+  postId: string | null;
   permalink: string | null;
+  alreadyPublished: boolean;
 };
 
 /** Veröffentlicht das erste Bild eines freigegebenen Social-Media-Entwurfs. */
-export async function publishImagePost(input: {
-  imageUrl: string;
-  caption: string;
-}): Promise<PublishResult> {
+export async function publishImagePost(
+  input: {
+    imageUrl: string;
+    caption: string;
+  },
+  options: {
+    publishedMediaId?: string | null;
+    publishedPermalink?: string | null;
+    onPublished?: (postId: string) => Promise<void>;
+  } = {},
+): Promise<PublishResult> {
   // Erzwingt eine vollstaendige Konfiguration, bevor externe Aufrufe beginnen.
   instagramConfig();
   const { accessToken, accountId } = await loadCredential();
 
-  const { postId, permalink } = await publishInstagramImage({
-    accountId,
-    accessToken,
-    ...input,
-  });
+  const result = await publishInstagramImage(
+    {
+      accountId,
+      accessToken,
+      ...input,
+      publishedMediaId: options.publishedMediaId,
+      publishedPermalink: options.publishedPermalink,
+    },
+    fetch,
+    { onPublished: options.onPublished },
+  );
 
-  logger.info("Instagram-Beitrag veröffentlicht", { postId });
-  return { postId, permalink };
+  logger.info("Instagram-Beitrag veröffentlicht", {
+    postId: result.postId,
+    alreadyPublished: result.alreadyPublished,
+  });
+  return result;
 }
 
 // ---------------------------------------------------------------------------
