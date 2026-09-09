@@ -2,7 +2,7 @@
 
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useRouter } from "next/navigation";
-import { Controller, useForm } from "react-hook-form";
+import { Controller, useForm, useWatch } from "react-hook-form";
 import { Loader2, Save } from "lucide-react";
 
 import { AdminCard } from "@/components/admin/admin-page-header";
@@ -29,8 +29,11 @@ import {
   type VehicleFormInput,
   type VehicleFormValues,
 } from "@/modules/vehicles/admin-schemas";
+import { kwToPs } from "@/modules/vehicles/price-sheet-mapping";
 import {
   BODY_TYPE_LABELS,
+  DRIVETRAIN_LABELS,
+  DRIVETRAIN_ORDER,
   BODY_TYPE_ORDER,
   CONDITION_LABELS,
   FUEL_LABELS,
@@ -85,6 +88,18 @@ export function VehicleForm({
   const errors = form.formState.errors;
   const submitting = form.formState.isSubmitting;
 
+  // Mitlaufende Umrechnung, damit die im Preisblatt übliche PS-Angabe
+  // gegengeprüft werden kann, ohne eine zweite Zahl zu speichern.
+  // `useWatch` statt `form.watch()`: Letzteres gibt eine nicht memoisierbare
+  // Funktion zurück, woraufhin der React Compiler die gesamte Komponente
+  // überspringen würde.
+  const powerKwInput = useWatch({ control: form.control, name: "powerKw" });
+  const powerKwNumber = Number(String(powerKwInput ?? "").replace(/[^\d]/g, ""));
+  const powerHint =
+    Number.isFinite(powerKwNumber) && powerKwNumber > 0
+      ? `entspricht ${kwToPs(powerKwNumber)} PS`
+      : "PS werden daraus berechnet.";
+
   return (
     <form onSubmit={onSubmit} noValidate className="space-y-6">
       <FormStatus state={state} />
@@ -112,6 +127,47 @@ export function VehicleForm({
                 aria-invalid={invalid}
                 aria-describedby={describedBy}
                 {...form.register("model")}
+              />
+            )}
+          </FormField>
+
+          <FormField
+            label="GW-Nr"
+            htmlFor="v-stocknumber"
+            error={errors.stockNumber?.message}
+            description="Bestandsnummer des Händlersystems. Ordnet den CSV-Import zu."
+          >
+            {({ id, describedBy, invalid }) => (
+              <Input
+                id={id}
+                className="tabular"
+                placeholder="1042"
+                aria-invalid={invalid}
+                aria-describedby={describedBy}
+                {...form.register("stockNumber")}
+              />
+            )}
+          </FormField>
+
+          {/*
+            * Die FIN steht nur hier, im geschützten Adminbereich, vollständig.
+            * Listen zeigen sie gekürzt, öffentlich erscheint sie nie.
+            */}
+          <FormField
+            label="FIN"
+            htmlFor="v-vin"
+            error={errors.vin?.message}
+            description="Fahrgestellnummer. Stärkstes Zuordnungsmerkmal, nie öffentlich sichtbar."
+          >
+            {({ id, describedBy, invalid }) => (
+              <Input
+                id={id}
+                className="tabular uppercase"
+                placeholder="WVWZZZ1KZAW123456"
+                autoComplete="off"
+                aria-invalid={invalid}
+                aria-describedby={describedBy}
+                {...form.register("vin")}
               />
             )}
           </FormField>
@@ -152,6 +208,25 @@ export function VehicleForm({
                 aria-invalid={invalid}
                 aria-describedby={describedBy}
                 {...form.register("priceEuro")}
+              />
+            )}
+          </FormField>
+
+          <FormField
+            label="Listenpreis (€)"
+            htmlFor="v-listprice"
+            error={errors.listPriceEuro?.message}
+            description="Nur ausfüllen, wenn der Preis oben ein Aktionspreis ist."
+          >
+            {({ id, describedBy, invalid }) => (
+              <Input
+                id={id}
+                inputMode="numeric"
+                className="tabular"
+                placeholder="24900"
+                aria-invalid={invalid}
+                aria-describedby={describedBy}
+                {...form.register("listPriceEuro")}
               />
             )}
           </FormField>
@@ -235,9 +310,15 @@ export function VehicleForm({
             )}
           </FormField>
 
+          {/*
+            * Kraftstoff, Getriebe und Antrieb dürfen leer bleiben. Weder der
+            * Bestandsimport noch das Preisblatt liefern sie zwingend, und ein
+            * geratener Wert stünde später als Tatsache im Instagram-Text.
+            */}
           <SelectField
             label="Kraftstoff"
             id="v-fuel"
+            optional
             error={errors.fuel?.message}
             control={form.control}
             name="fuel"
@@ -247,12 +328,26 @@ export function VehicleForm({
           <SelectField
             label="Getriebe"
             id="v-transmission"
+            optional
             error={errors.transmission?.message}
             control={form.control}
             name="transmission"
             options={TRANSMISSION_ORDER.map((value) => ({
               value,
               label: TRANSMISSION_LABELS[value],
+            }))}
+          />
+
+          <SelectField
+            label="Antrieb"
+            id="v-drivetrain"
+            optional
+            error={errors.drivetrain?.message}
+            control={form.control}
+            name="drivetrain"
+            options={DRIVETRAIN_ORDER.map((value) => ({
+              value,
+              label: DRIVETRAIN_LABELS[value],
             }))}
           />
 
@@ -292,7 +387,17 @@ export function VehicleForm({
             }))}
           />
 
-          <FormField label="Leistung (kW)" htmlFor="v-power" error={errors.powerKw?.message}>
+          {/*
+            * Nur kW wird gespeichert. PS sind dieselbe Größe in einer anderen
+            * Einheit – beide zu führen hieße, zwei Zahlen zu pflegen, die
+            * einander widersprechen können. Der Hinweis rechnet mit.
+            */}
+          <FormField
+            label="Leistung (kW)"
+            htmlFor="v-power"
+            error={errors.powerKw?.message}
+            description={powerHint}
+          >
             {({ id, describedBy, invalid }) => (
               <Input
                 id={id}
@@ -320,6 +425,75 @@ export function VehicleForm({
                 aria-invalid={invalid}
                 aria-describedby={describedBy}
                 {...form.register("displacementCcm")}
+              />
+            )}
+          </FormField>
+
+          <FormField
+            label="Gesamtgewicht (kg)"
+            htmlFor="v-weight"
+            error={errors.grossWeightKg?.message}
+          >
+            {({ id, describedBy, invalid }) => (
+              <Input
+                id={id}
+                inputMode="numeric"
+                className="tabular"
+                placeholder="2100"
+                aria-invalid={invalid}
+                aria-describedby={describedBy}
+                {...form.register("grossWeightKg")}
+              />
+            )}
+          </FormField>
+
+          <FormField
+            label="Nationaler Code"
+            htmlFor="v-nationalcode"
+            error={errors.nationalCode?.message}
+            description="Typisierung laut Zulassungsschein."
+          >
+            {({ id, describedBy, invalid }) => (
+              <Input
+                id={id}
+                aria-invalid={invalid}
+                aria-describedby={describedBy}
+                {...form.register("nationalCode")}
+              />
+            )}
+          </FormField>
+
+          <FormField
+            label="Fahrzeugtyp"
+            htmlFor="v-vehicletype"
+            error={errors.vehicleType?.message}
+            description="Zum Beispiel PKW oder Kleinbus."
+          >
+            {({ id, describedBy, invalid }) => (
+              <Input
+                id={id}
+                aria-invalid={invalid}
+                aria-describedby={describedBy}
+                {...form.register("vehicleType")}
+              />
+            )}
+          </FormField>
+
+          <FormField
+            label="Standzeit (Tage)"
+            htmlFor="v-daysinstock"
+            error={errors.daysInStock?.message}
+            description="Aus dem Bestandsexport. Wird vom CSV-Import gepflegt."
+          >
+            {({ id, describedBy, invalid }) => (
+              <Input
+                id={id}
+                inputMode="numeric"
+                className="tabular"
+                placeholder="42"
+                aria-invalid={invalid}
+                aria-describedby={describedBy}
+                {...form.register("daysInStock")}
               />
             )}
           </FormField>
@@ -376,6 +550,42 @@ export function VehicleForm({
                 aria-invalid={invalid}
                 aria-describedby={describedBy}
                 {...form.register("description")}
+              />
+            )}
+          </FormField>
+
+          <FormField
+            label="Extras"
+            htmlFor="v-extras"
+            error={errors.extras?.message}
+            description="Zusätzlich verbaute Ausstattung, eine Zeile je Eintrag."
+          >
+            {({ id, describedBy, invalid }) => (
+              <Textarea
+                id={id}
+                rows={4}
+                placeholder={"Anhängerkupplung\nStandheizung"}
+                aria-invalid={invalid}
+                aria-describedby={describedBy}
+                {...form.register("extras")}
+              />
+            )}
+          </FormField>
+
+          <FormField
+            label="Highlights"
+            htmlFor="v-highlights"
+            error={errors.highlights?.message}
+            description="Kurze Verkaufsargumente, eine Zeile je Eintrag. Das Preisblatt liefert bis zu zwölf davon."
+          >
+            {({ id, describedBy, invalid }) => (
+              <Textarea
+                id={id}
+                rows={5}
+                placeholder={"Navigationssystem\nLederausstattung\nSitzheizung vorne"}
+                aria-invalid={invalid}
+                aria-describedby={describedBy}
+                {...form.register("highlights")}
               />
             )}
           </FormField>
@@ -463,6 +673,16 @@ export function VehicleForm({
 }
 
 /** Auswahlliste, verdrahtet mit react-hook-form. */
+/**
+ * Platzhalterwert für "keine Angabe".
+ *
+ * Der leere String taugt dafür nicht: Radix Select verwendet ihn intern, um
+ * die Auswahl zurückzusetzen, und verweigert ihn als Wert eines Eintrags.
+ * Nach außen – im Formular und in der Datenbank – bleibt es der leere String
+ * bzw. NULL.
+ */
+const NO_VALUE = "__keine_angabe__";
+
 function SelectField({
   label,
   id,
@@ -470,6 +690,8 @@ function SelectField({
   control,
   name,
   options,
+  optional = false,
+  description,
 }: {
   label: string;
   id: string;
@@ -478,19 +700,36 @@ function SelectField({
   control: any;
   name: string;
   options: { value: string; label: string }[];
+  /** Erlaubt ausdrücklich "keine Angabe" statt eines geratenen Werts. */
+  optional?: boolean;
+  description?: string;
 }) {
   return (
-    <FormField label={label} htmlFor={id} required error={error}>
+    <FormField
+      label={label}
+      htmlFor={id}
+      required={!optional}
+      error={error}
+      description={description}
+    >
       {({ invalid }) => (
         <Controller
           control={control}
           name={name}
           render={({ field }) => (
-            <Select value={field.value} onValueChange={field.onChange}>
+            <Select
+              value={field.value === "" || field.value == null ? NO_VALUE : field.value}
+              onValueChange={(value) =>
+                field.onChange(value === NO_VALUE ? "" : value)
+              }
+            >
               <SelectTrigger id={id} aria-invalid={invalid} className="w-full">
                 <SelectValue placeholder="Bitte wählen" />
               </SelectTrigger>
               <SelectContent>
+                {optional && (
+                  <SelectItem value={NO_VALUE}>Keine Angabe</SelectItem>
+                )}
                 {options.map((option) => (
                   <SelectItem key={option.value} value={option.value}>
                     {option.label}

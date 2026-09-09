@@ -1,7 +1,9 @@
 import "server-only";
 
 import { prisma } from "@/lib/prisma";
-import type { VehicleStatus } from "@/generated/prisma/enums";
+import type { DrivetrainType, VehicleStatus } from "@/generated/prisma/enums";
+
+import { shortenVin } from "./labels";
 
 /** Lesezugriffe für die Fahrzeugverwaltung im Admin. */
 
@@ -15,6 +17,15 @@ export type AdminVehicleListItem = {
   status: VehicleStatus;
   soldAt: Date | null;
   externalSource: string;
+  // Unterscheidungsmerkmale für sonst gleich benannte Fahrzeuge.
+  firstRegistration: Date | null;
+  color: string | null;
+  drivetrain: DrivetrainType | null;
+  stockNumber: string | null;
+  /** Dateiname des letzten CSV-Imports, falls das Fahrzeug daher stammt. */
+  importSource: string | null;
+  /** Nur gekürzt – die vollständige FIN steht ausschließlich auf der Detailseite. */
+  vinShort: string | null;
   imageCount: number;
   primaryImageUrl: string | null;
   /**
@@ -77,6 +88,12 @@ export async function listVehiclesForAdmin(
       soldAt: true,
       externalSource: true,
       missingSinceImportAt: true,
+      firstRegistration: true,
+      color: true,
+      drivetrain: true,
+      stockNumber: true,
+      vin: true,
+      importSource: true,
       updatedAt: true,
       images: {
         orderBy: { position: "asc" },
@@ -96,6 +113,12 @@ export async function listVehiclesForAdmin(
     soldAt: row.soldAt,
     externalSource: row.externalSource,
     missingSinceImportAt: row.missingSinceImportAt,
+    firstRegistration: row.firstRegistration,
+    color: row.color,
+    drivetrain: row.drivetrain,
+    stockNumber: row.stockNumber,
+    importSource: row.importSource,
+    vinShort: shortenVin(row.vin),
     imageCount: row.images.length,
     primaryImageUrl: row.images[0]?.url ?? null,
     updatedAt: row.updatedAt,

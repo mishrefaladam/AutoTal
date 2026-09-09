@@ -2,6 +2,7 @@ import { z } from "zod";
 
 import {
   BodyType,
+  DrivetrainType,
   FuelType,
   TransmissionType,
   VehicleCondition,
@@ -105,13 +106,65 @@ const dateField = z
     "Bitte ein gültiges Datum angeben.",
   );
 
+/**
+ * Auswahlfeld, das leer bleiben darf.
+ *
+ * "Keine Angabe" ist hier ein gültiger Zustand und kein Versäumnis: Weder der
+ * CSV-Bestandsimport noch das Preisblatt liefern jedes Merkmal, und ein
+ * vorbelegter Wert wäre eine Falschangabe – die Caption-Erzeugung übernimmt
+ * jedes gesetzte Feld als Tatsache.
+ */
+function optionalEnum(values: Record<string, string>) {
+  return z
+    .string()
+    .trim()
+    .refine(
+      (value) => value === "" || Object.values(values).includes(value),
+      "Bitte einen gültigen Wert wählen.",
+    )
+    .transform((value) => (value === "" ? null : value));
+}
+
+/** Mehrzeilige Liste -> Array. Eine Zeile je Eintrag. */
+function lineList(label: string, max: number) {
+  return z
+    .string()
+    .max(4000, `${label} ist zu lang.`)
+    .transform((value) =>
+      value
+        .split("\n")
+        .map((line) => line.trim())
+        .filter(Boolean)
+        .slice(0, max),
+    );
+}
+
 export const vehicleFormSchema = z.object({
   make: requiredText("Die Marke", 60),
   model: requiredText("Das Modell", 80),
   variant: optionalText(140),
 
+  /** Bestandsnummer des Händlersystems. Zuordnungsmerkmal des CSV-Imports. */
+  stockNumber: optionalText(40),
+  /**
+   * Fahrgestellnummer. Nur im geschützten Adminbereich sichtbar und niemals
+   * öffentlich – die Liste zeigt sie deshalb nur gekürzt.
+   */
+  vin: z
+    .string()
+    .trim()
+    .toUpperCase()
+    .max(20, "Die FIN ist zu lang.")
+    .refine(
+      (value) => value === "" || /^[A-Z0-9]+$/.test(value),
+      "Die FIN darf nur Buchstaben und Ziffern enthalten.",
+    )
+    .transform((value) => (value === "" ? null : value)),
+
   /** Eingabe in Euro, gespeichert wird in Cent. */
   priceEuro: requiredNumber({ label: "Der Preis", min: 1, max: 5_000_000 }),
+  /** Listenpreis vor einem Aktionspreis. Leer, wenn es nur einen Preis gibt. */
+  listPriceEuro: optionalNumber(5_000_000),
   vatDeductible: z.boolean(),
 
   mileageKm: requiredNumber({
@@ -121,12 +174,10 @@ export const vehicleFormSchema = z.object({
   }),
   firstRegistration: monthField,
 
-  fuel: z.enum(Object.values(FuelType) as [string, ...string[]], {
-    message: "Bitte eine Kraftstoffart wählen.",
-  }),
-  transmission: z.enum(Object.values(TransmissionType) as [string, ...string[]], {
-    message: "Bitte eine Getriebeart wählen.",
-  }),
+  // Dürfen leer bleiben: siehe optionalEnum.
+  fuel: optionalEnum(FuelType),
+  transmission: optionalEnum(TransmissionType),
+  drivetrain: optionalEnum(DrivetrainType),
   bodyType: z.enum(Object.values(BodyType) as [string, ...string[]], {
     message: "Bitte einen Aufbau wählen.",
   }),
@@ -141,11 +192,19 @@ export const vehicleFormSchema = z.object({
 
   powerKw: optionalNumber(2000),
   displacementCcm: optionalNumber(10_000),
+  grossWeightKg: optionalNumber(40_000),
   color: optionalText(60),
   doors: optionalNumber(9),
   seats: optionalNumber(99),
   previousOwners: optionalNumber(99),
   inspectionValidUntil: dateField,
+
+  /** Nationaler Code der Typisierung. */
+  nationalCode: optionalText(40),
+  /** Fahrzeugtyp laut Händlersystem, z. B. "PKW". */
+  vehicleType: optionalText(60),
+  /** Standzeit in Tagen aus dem Bestandsexport. */
+  daysInStock: optionalNumber(9999),
 
   description: z
     .string()
@@ -157,16 +216,11 @@ export const vehicleFormSchema = z.object({
    * angenehmer als Komma-Trennung, weil Ausstattungsnamen selbst Kommas
    * enthalten können ("Sitzheizung vorne, beheizbares Lenkrad").
    */
-  features: z
-    .string()
-    .max(4000, "Die Ausstattungsliste ist zu lang.")
-    .transform((value) =>
-      value
-        .split("\n")
-        .map((line) => line.trim())
-        .filter(Boolean)
-        .slice(0, 100),
-    ),
+  features: lineList("Die Ausstattungsliste", 100),
+  /** Zusätzlich verbaute Extras, getrennt von der Serienausstattung. */
+  extras: lineList("Die Extras-Liste", 100),
+  /** Kurze Verkaufsargumente; das Preisblatt liefert bis zu zwölf davon. */
+  highlights: lineList("Die Highlights-Liste", 30),
 
   /** Nur im Admin sichtbar, wird nie öffentlich ausgegeben. */
   internalNotes: z
@@ -185,24 +239,37 @@ export const EMPTY_VEHICLE_FORM: VehicleFormValues = {
   make: "",
   model: "",
   variant: "",
+  stockNumber: "",
+  vin: "",
   priceEuro: "",
+  listPriceEuro: "",
   vatDeductible: false,
   mileageKm: "",
   firstRegistration: "",
-  fuel: "DIESEL",
-  transmission: "MANUAL",
-  bodyType: "SEDAN",
+  // Bewusst ohne Vorbelegung: "Diesel" und "Schaltgetriebe" wären für ein
+  // gerade angelegtes Fahrzeug erfundene Angaben – und landeten über die
+  // Caption-Erzeugung als Tatsachen in einem Instagram-Beitrag.
+  fuel: "",
+  transmission: "",
+  drivetrain: "",
+  bodyType: "OTHER",
   condition: "USED",
   status: "IN_STOCK",
   powerKw: "",
   displacementCcm: "",
+  grossWeightKg: "",
   color: "",
   doors: "",
   seats: "",
   previousOwners: "",
   inspectionValidUntil: "",
+  nationalCode: "",
+  vehicleType: "",
+  daysInStock: "",
   description: "",
   features: "",
+  extras: "",
+  highlights: "",
   internalNotes: "",
   active: true,
 };

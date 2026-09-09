@@ -15,6 +15,7 @@ import { UserFacingError } from "@/lib/result";
 import {
   BODY_TYPE_LABELS,
   CONDITION_LABELS,
+  DRIVETRAIN_LABELS,
   FUEL_LABELS,
   TRANSMISSION_LABELS,
   formatRegistration,
@@ -194,13 +195,35 @@ export function buildVehiclePrompt(
   }
   facts.push(`Fahrzeugart: ${CONDITION_LABELS[vehicle.condition]}`);
 
+  if (vehicle.drivetrain) {
+    facts.push(`Antrieb: ${DRIVETRAIN_LABELS[vehicle.drivetrain]}`);
+  }
+
   if (vehicle.powerKw !== null) facts.push(`Leistung: ${formatPower(vehicle.powerKw)}`);
+  if (vehicle.displacementCcm !== null) {
+    facts.push(`Hubraum: ${formatNumber(vehicle.displacementCcm)} cm³`);
+  }
   if (vehicle.color) facts.push(`Farbe: ${vehicle.color}`);
   if (vehicle.doors !== null) facts.push(`Türen: ${vehicle.doors}`);
   if (vehicle.seats !== null) facts.push(`Sitze: ${vehicle.seats}`);
+  if (vehicle.vehicleType) facts.push(`Fahrzeugtyp: ${vehicle.vehicleType}`);
+  if (vehicle.grossWeightKg !== null) {
+    facts.push(`Gesamtgewicht: ${formatNumber(vehicle.grossWeightKg)} kg`);
+  }
 
+  // Ausstattung, Extras und Highlights sind drei verschiedene Listen und
+  // werden getrennt übergeben – zusammengeworfen ließe sich später nicht mehr
+  // sagen, was Serie und was nachgerüstet ist.
   if (vehicle.features.length > 0) {
     facts.push(`Ausstattung: ${vehicle.features.join(", ")}`);
+  }
+
+  if (vehicle.extras.length > 0) {
+    facts.push(`Extras: ${vehicle.extras.join(", ")}`);
+  }
+
+  if (vehicle.highlights.length > 0) {
+    facts.push(`Highlights: ${vehicle.highlights.join(", ")}`);
   }
 
   if (vehicle.description) {

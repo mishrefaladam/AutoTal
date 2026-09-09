@@ -44,6 +44,7 @@ const CHANGED_FIELD_LABELS: Record<keyof ImportValues, string> = {
   priceCents: "Preis",
   mileageKm: "KM-Stand",
   firstRegistration: "Baujahr",
+  daysInStock: "Standzeit",
 };
 
 function toPreviewResponse(preview: ImportPreview): ImportPreviewResponse {

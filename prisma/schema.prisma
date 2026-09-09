@@ -64,6 +64,13 @@ enum VehicleStatus {
   SOLD
 }
 
+/// Antriebsart. Nullable am Fahrzeug: Steht sie nirgends, wird sie nicht geraten.
+enum DrivetrainType {
+  FRONT_WHEEL
+  REAR_WHEEL
+  ALL_WHEEL
+}
+
 enum VehicleCondition {
   NEW
   USED
@@ -98,7 +105,12 @@ model Vehicle {
   model   String
   variant String?
 
+  /// Beworbener Preis – das, was Kundinnen und Kunden sehen. Entspricht dem
+  /// Angebotspreis der Bestands-CSV.
   priceCents Int
+  /// Verkaufs-/Listenpreis vor einem Aktionspreis. Nur gesetzt, wenn er
+  /// tatsächlich abweicht; sonst gibt es nur den einen Preis.
+  listPriceCents Int?
   /// Vorsteuerabzugsberechtigt (österreichische Händlerpraxis)
   vatDeductible Boolean @default(false)
 
@@ -119,12 +131,32 @@ model Vehicle {
   doors          Int?
   seats          Int?
   previousOwners Int?
+
+  // -- Ergänzende Fahrzeugdaten ----------------------------------------------
+  // Durchweg nullable: Weder CSV noch Preisblatt liefern alles, und ein
+  // Standardwert wäre hier eine Falschangabe – die Caption-Erzeugung führt
+  // jedes gesetzte Feld als Tatsache.
+  /// Antrieb (Vorderrad, Hinterrad, Allrad).
+  drivetrain    DrivetrainType?
+  /// Nationaler Code der Typisierung (Österreich).
+  nationalCode  String?
+  /// Fahrzeugtyp laut Händlersystem, z. B. "PKW". Freitext, weil die Quellen
+  /// keine gemeinsame Werteliste haben.
+  vehicleType   String?
+  /// Höchstzulässiges Gesamtgewicht in Kilogramm.
+  grossWeightKg Int?
+  /// Standzeit in Tagen aus dem Bestandsexport.
+  daysInStock   Int?
   /// §57a-Begutachtung ("Pickerl") gültig bis
   inspectionValidUntil DateTime?
 
   description String  @default("")
   /// Ausstattungsliste (US-05)
   features    String[] @default([])
+  /// Zusätzlich verbaute Extras, getrennt von der Serienausstattung.
+  extras      String[] @default([])
+  /// Kurze Verkaufsargumente. Das Preisblatt liefert sie als Highlights_1..12.
+  highlights  String[] @default([])
 
   // -- Bestandsführung -------------------------------------------------------
   /// Verfügbarkeit im eigenen Bestand
@@ -157,6 +189,12 @@ model Vehicle {
   importSource   String?
   /// Auffälligkeiten der zuletzt eingelesenen Zeile, für den Admin lesbar.
   importWarnings String[] @default([])
+
+  // -- Preisblatt (PDF) -------------------------------------------------------
+  /// Wann zuletzt Daten aus einem Preisblatt übernommen wurden.
+  priceSheetImportedAt DateTime?
+  /// Dateiname des zuletzt übernommenen Preisblatts.
+  priceSheetSource     String?
 
   images       VehicleImage[]
   socialDrafts SocialDraft[]

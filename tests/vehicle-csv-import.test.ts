@@ -50,6 +50,7 @@ function existing(overrides: Partial<ExistingVehicle> = {}): ExistingVehicle {
     priceCents: 1_250_000,
     mileageKm: 145_000,
     firstRegistration: yearToDate(2019),
+    daysInStock: null,
     importedAt: new Date("2026-09-01T10:00:00Z"),
     missingSinceImportAt: null,
     ...overrides,
@@ -209,6 +210,7 @@ describe("Neues Fahrzeug", () => {
           color: "Blau",
           priceCents: 1_250_000,
           mileageKm: 145_000,
+          daysInStock: 42,
         }),
       ],
     });
@@ -238,7 +240,7 @@ describe("Zuordnung bestehender Fahrzeuge", () => {
     assert.equal(plan.updates.length, 1);
     assert.equal(plan.updates[0].matchedBy, "vin");
     assert.equal(plan.updates[0].id, "veh-1");
-    assert.deepEqual(plan.updates[0].changedFields, ["mileageKm"]);
+    assert.deepEqual(plan.updates[0].changedFields, ["mileageKm", "daysInStock"]);
   });
 
   it("ordnet über die GW-Nr zu, wenn keine FIN vorliegt", () => {
@@ -253,7 +255,7 @@ describe("Zuordnung bestehender Fahrzeuge", () => {
 
     assert.equal(plan.updates.length, 1);
     assert.equal(plan.updates[0].matchedBy, "stockNumber");
-    assert.deepEqual(plan.updates[0].changedFields, ["priceCents"]);
+    assert.deepEqual(plan.updates[0].changedFields, ["priceCents", "daysInStock"]);
   });
 
   it("zieht die FIN der GW-Nr vor", () => {

@@ -1,5 +1,6 @@
 import type {
   BodyType,
+  DrivetrainType,
   FuelType,
   TransmissionType,
   VehicleCondition,
@@ -73,6 +74,18 @@ export const BODY_TYPE_LABELS: Record<BodyType, string> = {
   PICKUP: "Pick-up",
   OTHER: "Sonstige",
 };
+
+export const DRIVETRAIN_LABELS: Record<DrivetrainType, string> = {
+  FRONT_WHEEL: "Vorderradantrieb",
+  REAR_WHEEL: "Hinterradantrieb",
+  ALL_WHEEL: "Allradantrieb",
+};
+
+export const DRIVETRAIN_ORDER: DrivetrainType[] = [
+  "FRONT_WHEEL",
+  "REAR_WHEEL",
+  "ALL_WHEEL",
+];
 
 export const CONDITION_LABELS: Record<VehicleCondition, string> = {
   NEW: "Neuwagen",
@@ -162,4 +175,22 @@ export function formatDate(date: Date | null): string {
 
 export function formatDateTime(date: Date | null): string {
   return date ? dateTimeFormatter.format(date) : "–";
+}
+
+/**
+ * FIN gekürzt: nur die letzten sechs Zeichen.
+ *
+ * In Listen genügt das, um zwei sonst gleiche Fahrzeuge auseinanderzuhalten.
+ * Vollständig steht die Nummer nur auf der geschützten Detailseite; öffentlich
+ * erscheint sie nirgends.
+ */
+export function shortenVin(vin: string | null): string | null {
+  if (!vin) return null;
+  return vin.length <= 6 ? vin : `…${vin.slice(-6)}`;
+}
+
+/** "10/2018" – Monat und Jahr, wie im Fahrzeughandel üblich. */
+export function formatMonthYear(date: Date | null): string | null {
+  if (!date) return null;
+  return `${String(date.getUTCMonth() + 1).padStart(2, "0")}/${date.getUTCFullYear()}`;
 }

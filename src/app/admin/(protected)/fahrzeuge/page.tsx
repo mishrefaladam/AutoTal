@@ -10,7 +10,7 @@ import {
 } from "@/components/admin/vehicle-overview";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { MANUAL_SOURCE } from "@/modules/vehicles/constants";
+import { isEditableSource } from "@/modules/vehicles/constants";
 import { formatEuro, formatKilometers } from "@/lib/money";
 import { cn } from "@/lib/utils";
 import { countOpenPurchaseInquiries } from "@/modules/purchase-inquiries/repository";
@@ -19,8 +19,10 @@ import {
   listVehiclesForAdmin,
 } from "@/modules/vehicles/admin-repository";
 import {
+  DRIVETRAIN_LABELS,
   VEHICLE_STATUS_LABELS,
   formatDateTime,
+  formatMonthYear,
 } from "@/modules/vehicles/labels";
 import type { VehicleStatus } from "@/generated/prisma/enums";
 
@@ -161,7 +163,7 @@ export default async function AdminVehiclesPage({
       ) : (
         <ul className="space-y-3">
           {vehicles.map((vehicle) => {
-            const editable = vehicle.externalSource === MANUAL_SOURCE;
+            const editable = isEditableSource(vehicle.externalSource);
 
             return (
               <li key={vehicle.id}>
@@ -208,10 +210,9 @@ export default async function AdminVehiclesPage({
                         <Badge variant="secondary">offline</Badge>
                       )}
 
-                      {/* Altbestand aus einer früheren Datenquelle. Es gibt
-                          keine Synchronisierung mehr, die solche Datensätze
-                          nachführt – deshalb "Altbestand" statt eines
-                          Quellennamens, der Automatik suggeriert. */}
+                      {/* Altbestand aus der früheren, abgeschalteten Quelle.
+                          Fahrzeuge aus dem CSV-Import gehören ausdrücklich
+                          nicht dazu – sie sind vollständig bearbeitbar. */}
                       {!editable && (
                         <Badge variant="secondary" title={`Quelle: ${vehicle.externalSource}`}>
                           Altbestand
@@ -241,15 +242,45 @@ export default async function AdminVehiclesPage({
                       )}
                     </div>
 
+                    {/*
+                      * Zwei gleich benannte Fahrzeuge – etwa zwei BMW X5 –
+                      * unterscheiden sich hier: Erstzulassung, Laufleistung,
+                      * Preis, Farbe und Antrieb stehen in einer Zeile.
+                      */}
                     <p className="text-muted-foreground tabular mt-1 text-sm">
-                      {formatEuro(vehicle.priceCents)} ·{" "}
-                      {formatKilometers(vehicle.mileageKm)} ·{" "}
-                      {vehicle.imageCount}{" "}
-                      {vehicle.imageCount === 1 ? "Bild" : "Bilder"}
+                      {[
+                        formatMonthYear(vehicle.firstRegistration),
+                        formatKilometers(vehicle.mileageKm),
+                        formatEuro(vehicle.priceCents),
+                        vehicle.color,
+                        vehicle.drivetrain
+                          ? DRIVETRAIN_LABELS[vehicle.drivetrain]
+                          : null,
+                        `${vehicle.imageCount} ${vehicle.imageCount === 1 ? "Bild" : "Bilder"}`,
+                      ]
+                        .filter(Boolean)
+                        .join(" · ")}
                     </p>
+
+                    {/*
+                      * Kennungen: Die FIN steht nur gekürzt – in einer Liste
+                      * genügt das zur Unterscheidung, und vollständig gehört
+                      * sie nur auf die Detailseite.
+                      */}
+                    {(vehicle.stockNumber || vehicle.vinShort) && (
+                      <p className="text-muted-foreground tabular mt-0.5 text-xs">
+                        {[
+                          vehicle.stockNumber ? `GW-Nr: ${vehicle.stockNumber}` : null,
+                          vehicle.vinShort ? `FIN: ${vehicle.vinShort}` : null,
+                        ]
+                          .filter(Boolean)
+                          .join(" · ")}
+                      </p>
+                    )}
 
                     <p className="text-muted-foreground mt-0.5 text-xs">
                       Zuletzt geändert {formatDateTime(vehicle.updatedAt)}
+                      {vehicle.importSource && ` · Import: ${vehicle.importSource}`}
                     </p>
                   </div>
 

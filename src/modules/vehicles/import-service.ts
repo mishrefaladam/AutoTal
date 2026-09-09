@@ -156,6 +156,7 @@ async function loadExistingVehicles(): Promise<ExistingVehicle[]> {
       priceCents: true,
       mileageKm: true,
       firstRegistration: true,
+      daysInStock: true,
       importedAt: true,
       missingSinceImportAt: true,
     },
@@ -172,6 +173,7 @@ async function loadExistingVehicles(): Promise<ExistingVehicle[]> {
     priceCents: row.priceCents,
     mileageKm: row.mileageKm,
     firstRegistration: row.firstRegistration,
+    daysInStock: row.daysInStock,
     importedAt: row.importedAt,
     missingSinceImportAt: row.missingSinceImportAt,
   }));

@@ -1,5 +1,6 @@
 import type {
   BodyType,
+  DrivetrainType,
   FuelType,
   TransmissionType,
   VehicleCondition,
@@ -19,6 +20,7 @@ import type {
 
 export type {
   BodyType,
+  DrivetrainType,
   FuelType,
   TransmissionType,
   VehicleCondition,
@@ -49,6 +51,7 @@ export type VehicleListItem = {
   /** null = keine Angabe. Wird nirgends geraten – siehe Prisma-Schema. */
   fuel: FuelType | null;
   transmission: TransmissionType | null;
+  drivetrain: DrivetrainType | null;
   bodyType: BodyType;
   condition: VehicleCondition;
   powerKw: number | null;
@@ -66,6 +69,13 @@ export type VehicleDetail = VehicleListItem & {
   seats: number | null;
   previousOwners: number | null;
   displacementCcm: number | null;
+  grossWeightKg: number | null;
+  nationalCode: string | null;
+  vehicleType: string | null;
+  /** Zusätzlich verbaute Extras, getrennt von der Serienausstattung. */
+  extras: string[];
+  /** Kurze Verkaufsargumente, z. B. aus dem Preisblatt. */
+  highlights: string[];
   inspectionValidUntil: Date | null;
   externalSource: string;
   externalId: string;

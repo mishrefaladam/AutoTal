@@ -25,6 +25,7 @@ export type ExistingVehicle = {
   priceCents: number;
   mileageKm: number;
   firstRegistration: Date | null;
+  daysInStock: number | null;
   /** null = nie über den Import angelegt, also von Hand gepflegt. */
   importedAt: Date | null;
   missingSinceImportAt: Date | null;
@@ -38,6 +39,8 @@ export type ImportValues = {
   priceCents: number;
   mileageKm: number;
   firstRegistration: Date | null;
+  /** Standzeit in Tagen. Die CSV führt sie als eigene Spalte. */
+  daysInStock: number | null;
 };
 
 export type PlannedCreate = {
@@ -119,6 +122,7 @@ function toValues(row: ParsedVehicleRow, fallback?: ExistingVehicle): ImportValu
     priceCents: row.priceCents ?? fallback?.priceCents ?? 0,
     mileageKm: row.mileageKm ?? fallback?.mileageKm ?? 0,
     firstRegistration: yearToDate(row.year) ?? fallback?.firstRegistration ?? null,
+    daysInStock: row.standingDays ?? fallback?.daysInStock ?? null,
   };
 }
 
@@ -133,6 +137,7 @@ function diff(values: ImportValues, existing: ExistingVehicle): (keyof ImportVal
   if (!sameDay(values.firstRegistration, existing.firstRegistration)) {
     changed.push("firstRegistration");
   }
+  if (values.daysInStock !== existing.daysInStock) changed.push("daysInStock");
 
   return changed;
 }

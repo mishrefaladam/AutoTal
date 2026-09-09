@@ -4,7 +4,7 @@ import { randomBytes } from "node:crypto";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 
-import { MANUAL_SOURCE } from "@/modules/vehicles/constants";
+import { MANUAL_SOURCE, isEditableSource } from "@/modules/vehicles/constants";
 import { getFileStorage } from "@/integrations/storage";
 import { logger } from "@/lib/logger";
 import { prisma } from "@/lib/prisma";
@@ -49,23 +49,34 @@ function toVehicleData(
     make: data.make,
     model: data.model,
     variant: data.variant,
+    stockNumber: data.stockNumber,
+    vin: data.vin,
     priceCents: data.priceEuro * 100,
+    listPriceCents: data.listPriceEuro === null ? null : data.listPriceEuro * 100,
     vatDeductible: data.vatDeductible,
     mileageKm: data.mileageKm,
     firstRegistration: data.firstRegistration,
+    // `null` heißt hier "keine Angabe" und wird auch so gespeichert.
     fuel: data.fuel as never,
     transmission: data.transmission as never,
+    drivetrain: data.drivetrain as never,
     bodyType: data.bodyType as never,
     condition: data.condition as never,
     powerKw: data.powerKw,
     displacementCcm: data.displacementCcm,
+    grossWeightKg: data.grossWeightKg,
     color: data.color,
     doors: data.doors,
     seats: data.seats,
     previousOwners: data.previousOwners,
     inspectionValidUntil: data.inspectionValidUntil,
+    nationalCode: data.nationalCode,
+    vehicleType: data.vehicleType,
+    daysInStock: data.daysInStock,
     description: data.description,
     features: data.features,
+    extras: data.extras,
+    highlights: data.highlights,
     status: data.status as never,
     internalNotes: data.internalNotes,
     // Das Verkaufsdatum führt sich selbst: Es wird beim Wechsel auf SOLD
@@ -165,11 +176,15 @@ export async function updateVehicle(
       return fail("Dieses Fahrzeug wurde nicht gefunden.", { code: "NOT_FOUND" });
     }
 
-    // Altbestand aus einer früheren Datenquelle bleibt schreibgeschützt:
-    // Diese Datensätze wurden nie im Admin gepflegt, ihre Herkunft ist nicht
-    // mehr nachvollziehbar. Statt sie halb zu bearbeiten, legt man besser ein
-    // eigenes Fahrzeug an.
-    if (existing.externalSource !== MANUAL_SOURCE) {
+    // Altbestand aus der früheren, abgeschalteten Datenquelle bleibt
+    // schreibgeschützt: Diese Datensätze wurden nie im Admin gepflegt und ihre
+    // Herkunft ist nicht mehr nachvollziehbar.
+    //
+    // Fahrzeuge aus dem CSV-Bestandsimport sind ausdrücklich NICHT gemeint.
+    // Der Import ist kein Sync – er überschreibt nur die Felder seiner Datei
+    // und lässt alles Gepflegte stehen. Sie hier zu sperren hieße, den halben
+    // Bestand unbearbeitbar zu machen.
+    if (!isEditableSource(existing.externalSource)) {
       return fail(
         `Dieses Fahrzeug stammt als Altbestand aus der Quelle ` +
           `„${existing.externalSource}“ und ist schreibgeschützt. Bitte legen ` +
