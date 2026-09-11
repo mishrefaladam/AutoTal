@@ -131,3 +131,35 @@ export async function getVehicleForEdit(id: string) {
     include: { images: { orderBy: { position: "asc" } } },
   });
 }
+
+/**
+ * Wie viele vom Import als fehlend markierte Fahrzeuge sich in einem Schritt
+ * löschen ließen – und wie viele stehen bleiben, weil sie bearbeitet wurden.
+ *
+ * Dieselbe Abgrenzung wie in `deleteMissingImportedVehicles`: Nur Datensätze
+ * ohne Bilder, Beschreibung und Beiträge gelten als unberührt.
+ */
+export async function countMissingImportedVehicles(): Promise<{
+  deletable: number;
+  kept: number;
+}> {
+  const candidates = await prisma.vehicle.findMany({
+    where: {
+      importedAt: { not: null },
+      missingSinceImportAt: { not: null },
+    },
+    select: {
+      description: true,
+      _count: { select: { images: true, socialDrafts: true } },
+    },
+  });
+
+  const deletable = candidates.filter(
+    (vehicle) =>
+      vehicle._count.images === 0 &&
+      vehicle._count.socialDrafts === 0 &&
+      vehicle.description.trim() === "",
+  ).length;
+
+  return { deletable, kept: candidates.length - deletable };
+}

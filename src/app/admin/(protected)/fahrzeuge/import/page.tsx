@@ -3,8 +3,10 @@ import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
 
 import { AdminPageHeader } from "@/components/admin/admin-page-header";
+import { MissingVehiclesCleanup } from "@/components/admin/missing-vehicles-cleanup";
 import { VehicleImport } from "@/components/admin/vehicle-import";
 import { Button } from "@/components/ui/button";
+import { countMissingImportedVehicles } from "@/modules/vehicles/admin-repository";
 
 export const metadata: Metadata = { title: "Bestand importieren" };
 
@@ -15,7 +17,9 @@ export const metadata: Metadata = { title: "Bestand importieren" };
  * Aufruf zur Anmeldeseite. Der Upload-Endpunkt prüft die Anmeldung zusätzlich
  * selbst.
  */
-export default function VehicleImportPage() {
+export default async function VehicleImportPage() {
+  const missing = await countMissingImportedVehicles();
+
   return (
     <>
       <AdminPageHeader
@@ -32,6 +36,13 @@ export default function VehicleImportPage() {
       />
 
       <VehicleImport />
+
+      {/* Steht unter dem Import, weil es dessen Folge ist: Erst der Import mit
+          der richtigen Datei markiert das Zuviel als fehlend, dann lässt es
+          sich hier in einem Schritt entfernen. */}
+      <div className="mt-6">
+        <MissingVehiclesCleanup deletable={missing.deletable} kept={missing.kept} />
+      </div>
     </>
   );
 }

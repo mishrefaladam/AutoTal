@@ -48,6 +48,8 @@ export type ImportCounts = {
   unchanged: number;
   missing: number;
   skipped: number;
+  /** Zeilen ohne Inserat – nicht importiert, nur gezählt. */
+  inactive: number;
 };
 
 export type ImportPreviewResponse = {
@@ -77,6 +79,8 @@ export type ImportCommitResponse = {
   reappeared: number;
   skipped: number;
   rowErrors: number;
+  /** Zeilen ohne Inserat – nicht importiert, nur gezählt. */
+  inactive: number;
   /** Zeilen, die beim Schreiben scheiterten. Nie stillschweigend. */
   failures: string[];
 };

@@ -23,8 +23,19 @@ import {
 const HEADER =
   "GW-Nr;FIN;Marke;Modell;Farbe;KM-Stand;Baujahr;Verkaufspreis;Angebotspreis;online auf;Standzeit (Tage)";
 
+/**
+ * Die Fixtures beschreiben inserierte Fahrzeuge. Ein leeres "online auf"
+ * hieße "nicht inseriert" und würde vom Import ausgesondert – deshalb wird die
+ * Spalte hier vorbelegt, wenn eine Zeile sie leer lässt. Tests, die gezielt
+ * inaktive Fahrzeuge prüfen, stehen in vehicle-csv-inactive.test.ts.
+ */
 function csv(...rows: string[]): string {
-  return [HEADER, ...rows].join("\n");
+  const listed = rows.map((row) => {
+    const cells = row.split(";");
+    if (cells.length === 11 && cells[9] === "") cells[9] = "willhaben";
+    return cells.join(";");
+  });
+  return [HEADER, ...listed].join("\n");
 }
 
 const VIN = "WVWZZZ1KZAW123456";

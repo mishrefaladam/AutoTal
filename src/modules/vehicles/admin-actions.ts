@@ -273,6 +273,88 @@ export async function deleteVehicle(
   }
 }
 
+/**
+ * Löscht alle Fahrzeuge, die der Bestandsimport als fehlend markiert hat und
+ * die seither niemand angefasst hat.
+ *
+ * WOZU: Ein Import mit der falschen Datei – etwa dem vollständigen Bestand
+ * statt nur der inserierten Fahrzeuge – legt auf einen Schlag Dutzende
+ * Datensätze an, die nicht auf die Website gehören. Sie einzeln zu löschen
+ * heißt Dutzende Male tippen und bestätigen. Der nächste Import mit der
+ * richtigen Datei markiert sie als fehlend; diese Aktion räumt sie dann in
+ * einem Schritt weg.
+ *
+ * SCHUTZ: Gelöscht wird nur, was ausschließlich aus dem Import stammt – ohne
+ * Bilder, ohne Beschreibung, ohne Beiträge. Sobald jemand ein Fahrzeug
+ * bearbeitet hat, bleibt es stehen und wird benannt: Ein verkauftes Fahrzeug
+ * mit veröffentlichtem Instagram-Beitrag ist kein Versehen, sondern Historie.
+ *
+ * Weil die Löschmenge keine Bilder enthält, ist auch kein Aufräumen im
+ * Dateispeicher nötig.
+ */
+export async function deleteMissingImportedVehicles(): Promise<
+  ActionResult<{ message: string; deleted: number; kept: string[] }>
+> {
+  try {
+    const admin = await requireAdminForAction();
+
+    const candidates = await prisma.vehicle.findMany({
+      where: {
+        importedAt: { not: null },
+        missingSinceImportAt: { not: null },
+      },
+      select: {
+        id: true,
+        make: true,
+        model: true,
+        variant: true,
+        description: true,
+        _count: { select: { images: true, socialDrafts: true } },
+      },
+      orderBy: [{ make: "asc" }, { model: "asc" }],
+    });
+
+    const untouched = candidates.filter(
+      (vehicle) =>
+        vehicle._count.images === 0 &&
+        vehicle._count.socialDrafts === 0 &&
+        vehicle.description.trim() === "",
+    );
+    const kept = candidates
+      .filter((vehicle) => !untouched.includes(vehicle))
+      .map((vehicle) =>
+        [vehicle.make, vehicle.model, vehicle.variant].filter(Boolean).join(" "),
+      );
+
+    if (untouched.length > 0) {
+      await prisma.vehicle.deleteMany({
+        where: { id: { in: untouched.map((vehicle) => vehicle.id) } },
+      });
+    }
+
+    logger.info("Fehlende Importfahrzeuge gelöscht", {
+      userId: admin.id,
+      deleted: untouched.length,
+      kept: kept.length,
+    });
+    revalidateVehiclePages();
+
+    const message =
+      untouched.length === 0
+        ? "Es gab nichts zu löschen."
+        : untouched.length === 1
+          ? "1 Fahrzeug wurde gelöscht."
+          : `${untouched.length} Fahrzeuge wurden gelöscht.`;
+
+    return ok({ message, deleted: untouched.length, kept });
+  } catch (error) {
+    logger.error("Fehlende Importfahrzeuge konnten nicht gelöscht werden", {
+      error,
+    });
+    return toActionResult(error);
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Bilder
 // ---------------------------------------------------------------------------

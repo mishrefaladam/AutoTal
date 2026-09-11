@@ -69,6 +69,7 @@ export type ImportOutcome = {
   reappeared: number;
   skipped: number;
   rowErrors: number;
+  inactive: number;
 };
 
 /** Dateiname für die Herkunftsangabe entschärfen und kürzen. */
@@ -315,6 +316,7 @@ export async function applyImportPlan(
       reappeared,
       skipped: plan.skipped.length,
       rowErrors: parsed.errors.length,
+      inactive: parsed.inactiveRows,
     },
     failures,
   };

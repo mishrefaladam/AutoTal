@@ -257,7 +257,7 @@ export type VehicleCsvField =
   | "year"
   | "salePrice"
   | "offerPrice"
-  | "onlineSince"
+  | "listedOn"
   | "standingDays";
 
 export const FIELD_LABELS: Record<VehicleCsvField, string> = {
@@ -270,7 +270,7 @@ export const FIELD_LABELS: Record<VehicleCsvField, string> = {
   year: "Baujahr",
   salePrice: "Verkaufspreis",
   offerPrice: "Angebotspreis",
-  onlineSince: "online auf",
+  listedOn: "online auf",
   standingDays: "Standzeit (Tage)",
 };
 
@@ -298,7 +298,7 @@ const HEADER_ALIASES: Record<VehicleCsvField, string[]> = {
   year: ["Baujahr", "Erstzulassung", "EZ", "Jahr", "Year"],
   salePrice: ["Verkaufspreis", "Preis", "VK-Preis", "Listenpreis", "Price"],
   offerPrice: ["Angebotspreis", "Aktionspreis", "Internetpreis"],
-  onlineSince: ["online auf", "online", "online seit", "Plattform"],
+  listedOn: ["online auf", "online", "Plattform", "Plattformen", "inseriert auf"],
   standingDays: ["Standzeit (Tage)", "Standzeit", "Standtage", "Tage im Bestand"],
 };
 
@@ -367,7 +367,8 @@ export type ParsedVehicleRow = {
   priceCents: number | null;
   /** Listenpreis, nur wenn er vom beworbenen Preis abweicht. */
   listPriceCents: number | null;
-  onlineSince: string | null;
+  /** Plattformen, auf denen das Fahrzeug inseriert ist – leer = nicht aktiv. */
+  listedOn: string | null;
   standingDays: number | null;
   warnings: string[];
 };
@@ -382,6 +383,17 @@ export type ParsedCsv = {
   /** Auffälligkeiten der Datei als Ganzes. */
   fileWarnings: string[];
   totalDataRows: number;
+  /**
+   * Zeilen ohne Inserat, die deshalb nicht importiert werden.
+   *
+   * Der Bestandsexport enthält auch Fahrzeuge, die nirgends online stehen –
+   * bereits verkauft, noch nicht freigegeben oder aus dem Angebot genommen.
+   * Erkennbar an einer leeren Spalte "online auf". Sie gehören nicht auf die
+   * Website und nicht in den Beitragsassistenten; sie werden deshalb schon
+   * hier ausgesondert und nur gezählt. Gilt nur, wenn die Datei die Spalte
+   * überhaupt führt – ohne sie gilt jede Zeile als aktiv.
+   */
+  inactiveRows: number;
 };
 
 /** Ohne diese Spalten ergibt eine Zeile kein Fahrzeug. */
@@ -409,6 +421,7 @@ export function parseVehicleCsv(text: string): ParsedCsv {
       errors: [{ line: 0, message: "Die Datei enthält keine Zeilen." }],
       fileWarnings,
       totalDataRows: 0,
+      inactiveRows: 0,
     };
   }
 
@@ -435,6 +448,7 @@ export function parseVehicleCsv(text: string): ParsedCsv {
       ],
       fileWarnings,
       totalDataRows: Math.max(table.length - 1, 0),
+      inactiveRows: 0,
     };
   }
 
@@ -560,7 +574,7 @@ export function parseVehicleCsv(text: string): ParsedCsv {
         year,
         priceCents,
         listPriceCents,
-        onlineSince: read("onlineSince") || null,
+        listedOn: read("listedOn") || null,
         standingDays: standingRaw === "" ? null : parseGermanInteger(standingRaw),
         warnings,
       });
@@ -574,11 +588,20 @@ export function parseVehicleCsv(text: string): ParsedCsv {
     }
   }
 
+  // --- Nicht inserierte Fahrzeuge aussondern --------------------------------
+  // Nur wenn die Datei die Spalte führt. Fehlt sie, gibt es keine Grundlage
+  // für die Unterscheidung, und jede Zeile gilt als aktiv.
+  const hasListingColumn = byField.has("listedOn");
+  const active = hasListingColumn
+    ? rows.filter((row) => row.listedOn !== null)
+    : rows;
+
   return {
     mapping,
-    rows,
+    rows: active,
     errors,
     fileWarnings,
     totalDataRows: Math.max(table.length - 1, 0),
+    inactiveRows: rows.length - active.length,
   };
 }

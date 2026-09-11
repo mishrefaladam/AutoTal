@@ -102,6 +102,7 @@ function toPreviewResponse(preview: ImportPreview): ImportPreviewResponse {
       unchanged: plan.unchanged.length,
       missing: plan.missing.length,
       skipped: plan.skipped.length,
+      inactive: parsed.inactiveRows,
     },
     rows: rows.slice(0, PREVIEW_ROW_LIMIT),
     skipped: plan.skipped,
@@ -169,6 +170,7 @@ export async function POST(request: NextRequest) {
       reappeared: outcome.reappeared,
       skipped: outcome.skipped,
       rowErrors: outcome.rowErrors,
+      inactive: outcome.inactive,
       failures,
     };
 

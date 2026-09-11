@@ -250,6 +250,17 @@ function Preview({
           />
         </dl>
 
+        {counts.inactive > 0 && (
+          <p className="text-muted-foreground mt-4 text-sm leading-relaxed">
+            {counts.inactive === 1
+              ? "1 Fahrzeug ohne Inserat wird nicht importiert"
+              : `${counts.inactive} Fahrzeuge ohne Inserat werden nicht importiert`}
+            {" "}– in der Spalte „online auf“ steht bei ihnen nichts. Sind
+            solche Fahrzeuge bereits im Bestand, werden sie als fehlend
+            markiert.
+          </p>
+        )}
+
         <Notices data={data} />
 
         <div className="border-border mt-6 flex flex-wrap items-center gap-3 border-t pt-5">
@@ -473,6 +484,14 @@ function Result({ data }: { data: ImportCommitResponse }) {
           tone={data.skipped + data.rowErrors > 0 ? "warning" : undefined}
         />
       </dl>
+
+      {data.inactive > 0 && (
+        <p className="text-muted-foreground mt-4 text-sm leading-relaxed">
+          {data.inactive === 1
+            ? "1 Fahrzeug ohne Inserat wurde nicht importiert."
+            : `${data.inactive} Fahrzeuge ohne Inserat wurden nicht importiert.`}
+        </p>
+      )}
 
       {data.failures.length > 0 && (
         <div className="mt-5">
