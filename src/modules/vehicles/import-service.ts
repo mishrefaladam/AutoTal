@@ -154,9 +154,11 @@ async function loadExistingVehicles(): Promise<ExistingVehicle[]> {
       stockNumber: true,
       vin: true,
       priceCents: true,
+      listPriceCents: true,
       mileageKm: true,
       firstRegistration: true,
       daysInStock: true,
+      importFingerprint: true,
       importedAt: true,
       missingSinceImportAt: true,
     },
@@ -171,9 +173,11 @@ async function loadExistingVehicles(): Promise<ExistingVehicle[]> {
     model: row.model,
     color: row.color,
     priceCents: row.priceCents,
+    listPriceCents: row.listPriceCents,
     mileageKm: row.mileageKm,
     firstRegistration: row.firstRegistration,
     daysInStock: row.daysInStock,
+    importFingerprint: row.importFingerprint,
     importedAt: row.importedAt,
     missingSinceImportAt: row.missingSinceImportAt,
   }));
@@ -229,6 +233,7 @@ export async function applyImportPlan(
           }),
           stockNumber: create.stockNumber,
           vin: create.vin,
+          importFingerprint: create.fingerprint,
           // Neu aus dem Import: im Bestand, ohne Bild, ohne Beitrag.
           status: "IN_STOCK",
           active: true,
@@ -257,8 +262,14 @@ export async function applyImportPlan(
           // Nur fachliche Felder der CSV. Status, Sichtbarkeit, Bilder,
           // Beschreibung und interne Notizen bleiben unangetastet.
           ...entry.values,
+          // `undefined` heißt für Prisma "Feld nicht anfassen". Eine leere
+          // Preisspalte lässt den gepflegten Preis damit unverändert stehen,
+          // statt ihn zu leeren.
+          priceCents: entry.values.priceCents ?? undefined,
+          listPriceCents: entry.values.listPriceCents ?? undefined,
           stockNumber: entry.stockNumber,
           vin: entry.vin,
+          importFingerprint: entry.fingerprint,
           lastSeenInImportAt: now,
           // Wieder in der Datei: Die Nachfrage-Markierung ist erledigt.
           missingSinceImportAt: null,

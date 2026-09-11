@@ -23,10 +23,12 @@ export type ImportPreviewRow = {
   stockNumber: string | null;
   vin: string | null;
   priceCents: number | null;
+  /** Bisheriger Preis – nur bei Änderungen belegt, für "alt → neu". */
+  previousPriceCents: number | null;
   mileageKm: number | null;
   year: number | null;
   /** Womit zugeordnet wurde – nur bei update/unchanged belegt. */
-  matchedBy: "vin" | "stockNumber" | null;
+  matchedBy: "vin" | "stockNumber" | "fingerprint" | null;
   /** Fachlich geänderte Felder in Klartext. */
   changed: string[];
   warnings: string[];

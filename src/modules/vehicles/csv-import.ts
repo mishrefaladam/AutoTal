@@ -212,6 +212,28 @@ export function parseEuroToCents(raw: string): number | null {
 }
 
 /**
+ * Preisspalte lesen. `null` heißt "kein Preis angegeben".
+ *
+ * Der Nullwert ist der Kern: WillhabenPro schreibt in den Angebotspreis eine
+ * 0, wenn es keinen Aktionspreis gibt – in einem echten Bestandsexport steht
+ * das in jeder einzelnen Zeile. Als Betrag gelesen ergäbe das ein Fahrzeug für
+ * 0 €, das die Website so auch anzeigen und die KI so auch bewerben würde.
+ * Ein Preis von null Euro ist im Fahrzeughandel keine Angabe, sondern das
+ * Fehlen einer Angabe.
+ *
+ * Negative Beträge werden ebenso verworfen statt auf 0 gekappt – auch das
+ * wäre eine erfundene Zahl.
+ */
+export function parsePriceColumn(raw: string): number | null {
+  if (raw.trim() === "") return null;
+
+  const cents = parseEuroToCents(raw);
+  if (cents === null || cents <= 0) return null;
+
+  return cents;
+}
+
+/**
  * FIN normalisieren. Genormt sind 17 Zeichen; kürzere Werte werden trotzdem
  * zur Zuordnung genutzt (Altbestand führt sie mitunter verkürzt), aber
  * gemeldet.
@@ -274,7 +296,7 @@ const HEADER_ALIASES: Record<VehicleCsvField, string[]> = {
   color: ["Farbe", "Außenfarbe", "Color", "Lackierung"],
   mileageKm: ["KM-Stand", "KM", "Kilometerstand", "Laufleistung", "Mileage"],
   year: ["Baujahr", "Erstzulassung", "EZ", "Jahr", "Year"],
-  salePrice: ["Verkaufspreis", "Preis", "VK-Preis", "Price"],
+  salePrice: ["Verkaufspreis", "Preis", "VK-Preis", "Listenpreis", "Price"],
   offerPrice: ["Angebotspreis", "Aktionspreis", "Internetpreis"],
   onlineSince: ["online auf", "online", "online seit", "Plattform"],
   standingDays: ["Standzeit (Tage)", "Standzeit", "Standtage", "Tage im Bestand"],
@@ -341,7 +363,10 @@ export type ParsedVehicleRow = {
   color: string | null;
   mileageKm: number | null;
   year: number | null;
+  /** Beworbener Preis in Cent. null = keine Angabe, niemals 0. */
   priceCents: number | null;
+  /** Listenpreis, nur wenn er vom beworbenen Preis abweicht. */
+  listPriceCents: number | null;
   onlineSince: string | null;
   standingDays: number | null;
   warnings: string[];
@@ -486,22 +511,40 @@ export function parseVehicleCsv(text: string): ParsedCsv {
         warnings.push(`Baujahr „${yearRaw}“ konnte nicht gelesen werden.`);
       }
 
-      // Der Angebotspreis ist der tatsächlich beworbene Preis und gewinnt,
-      // wenn beide Spalten belegt sind.
+      // --- Preise ---------------------------------------------------------
+      // Der Angebotspreis ist der tatsächlich beworbene Preis und gewinnt.
+      // Der Verkaufspreis wird zum Listenpreis, aber nur, wenn er davon
+      // abweicht – sonst stünden zwei gleiche Zahlen in zwei Feldern.
       const offerRaw = read("offerPrice");
       const saleRaw = read("salePrice");
-      const rawPriceCents =
-        (offerRaw === "" ? null : parseEuroToCents(offerRaw)) ??
-        (saleRaw === "" ? null : parseEuroToCents(saleRaw));
 
-      if (rawPriceCents === null && (offerRaw !== "" || saleRaw !== "")) {
+      const offerPriceCents = parsePriceColumn(offerRaw);
+      const salePriceCents = parsePriceColumn(saleRaw);
+
+      const priceCents = offerPriceCents ?? salePriceCents;
+      const listPriceCents =
+        offerPriceCents !== null &&
+        salePriceCents !== null &&
+        salePriceCents !== offerPriceCents
+          ? salePriceCents
+          : null;
+
+      // Stand etwas in der Spalte, ließ sich aber nicht als Betrag lesen.
+      const unreadable = [offerRaw, saleRaw].filter(
+        (value) => value !== "" && parseEuroToCents(value) === null,
+      );
+
+      if (unreadable.length > 0) {
         warnings.push(
-          `Preis „${offerRaw || saleRaw}“ ist keine Zahl. Das Fahrzeug wird ohne Preis geführt.`,
+          `Preis „${unreadable[0]}“ ist keine Zahl und wurde ausgelassen.`,
         );
       }
 
-      if (rawPriceCents !== null && rawPriceCents < 0) {
-        warnings.push("Negativer Preis wurde auf 0 gesetzt.");
+      if (priceCents === null) {
+        warnings.push(
+          "Kein Preis angegeben. Ein bestehendes Fahrzeug behält seinen " +
+            "bisherigen Preis; ein neues lässt sich ohne Preis nicht anlegen.",
+        );
       }
 
       const standingRaw = read("standingDays");
@@ -515,7 +558,8 @@ export function parseVehicleCsv(text: string): ParsedCsv {
         color: read("color") || null,
         mileageKm: mileageKm === null ? null : Math.max(mileageKm, 0),
         year,
-        priceCents: rawPriceCents === null ? null : Math.max(rawPriceCents, 0),
+        priceCents,
+        listPriceCents,
         onlineSince: read("onlineSince") || null,
         standingDays: standingRaw === "" ? null : parseGermanInteger(standingRaw),
         warnings,

@@ -42,6 +42,7 @@ const CHANGED_FIELD_LABELS: Record<keyof ImportValues, string> = {
   model: "Modell",
   color: "Farbe",
   priceCents: "Preis",
+  listPriceCents: "Listenpreis",
   mileageKm: "KM-Stand",
   firstRegistration: "Baujahr",
   daysInStock: "Standzeit",
@@ -58,6 +59,7 @@ function toPreviewResponse(preview: ImportPreview): ImportPreviewResponse {
       stockNumber: entry.stockNumber,
       vin: entry.vin,
       priceCents: entry.values.priceCents,
+      previousPriceCents: null,
       mileageKm: entry.values.mileageKm,
       year: entry.values.firstRegistration?.getUTCFullYear() ?? null,
       matchedBy: null,
@@ -73,6 +75,10 @@ function toPreviewResponse(preview: ImportPreview): ImportPreviewResponse {
       stockNumber: entry.stockNumber,
       vin: entry.vin,
       priceCents: entry.values.priceCents,
+      // Nur zeigen, was sich tatsächlich ändert.
+      previousPriceCents: entry.changedFields.includes("priceCents")
+        ? entry.previousPriceCents
+        : null,
       mileageKm: entry.values.mileageKm,
       year: entry.values.firstRegistration?.getUTCFullYear() ?? null,
       matchedBy: entry.matchedBy,

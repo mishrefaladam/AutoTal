@@ -316,6 +316,15 @@ function Preview({
                       {row.vin && <div className="mt-0.5">{row.vin}</div>}
                     </td>
                     <td className="tabular py-2.5 pr-4">
+                      {/*
+                        * Bei einer Preisänderung beide Beträge zeigen. Die
+                        * Zahl allein verriete nicht, ob sie neu ist.
+                        */}
+                      {row.previousPriceCents !== null && (
+                        <span className="text-muted-foreground line-through">
+                          {formatEuro(row.previousPriceCents)}{" "}
+                        </span>
+                      )}
                       {row.priceCents === null ? "–" : formatEuro(row.priceCents)}
                     </td>
                     <td className="tabular py-2.5 pr-4">

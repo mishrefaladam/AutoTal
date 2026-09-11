@@ -48,9 +48,11 @@ function existing(overrides: Partial<ExistingVehicle> = {}): ExistingVehicle {
     model: "Golf",
     color: "Blau",
     priceCents: 1_250_000,
+    listPriceCents: null,
     mileageKm: 145_000,
     firstRegistration: yearToDate(2019),
     daysInStock: null,
+    importFingerprint: null,
     importedAt: new Date("2026-09-01T10:00:00Z"),
     missingSinceImportAt: null,
     ...overrides,
@@ -157,7 +159,12 @@ describe("Fehlende optionale Werte", () => {
     assert.equal(row.mileageKm, null);
     assert.equal(row.year, null);
     assert.equal(row.priceCents, null);
-    assert.deepEqual(row.warnings, []);
+    assert.equal(row.listPriceCents, null);
+
+    // Der fehlende Preis wird benannt: Ohne ihn lässt sich ein neues Fahrzeug
+    // nicht anlegen, ein bestehendes behält seinen bisherigen.
+    assert.equal(row.warnings.length, 1);
+    assert.match(row.warnings[0], /Kein Preis angegeben/);
   });
 
   it("überschreibt gepflegte Werte nicht mit leeren Spalten", () => {
@@ -211,6 +218,7 @@ describe("Neues Fahrzeug", () => {
           priceCents: 1_250_000,
           mileageKm: 145_000,
           daysInStock: 42,
+    importFingerprint: null,
         }),
       ],
     });
@@ -278,13 +286,26 @@ describe("Zuordnung bestehender Fahrzeuge", () => {
     assert.equal(plan.updates[0].matchedBy, "vin");
   });
 
-  it("überspringt Zeilen ohne jedes Merkmal, statt sie doppelt anzulegen", () => {
+  it("nimmt eine Zeile ohne FIN und GW-Nr über die Ersatzkennung auf", () => {
+    // Der echte Bestandsexport lässt die GW-Nr leer und führt nur bei einem
+    // Drittel eine FIN. Baujahr und Kilometerstand tragen die Zuordnung dann.
     const parsed = parseVehicleCsv(csv(`;;VW;Golf;Blau;145.000;2019;;12.500;;`));
+    const plan = planVehicleImport({ rows: parsed.rows, existing: [] });
+
+    assert.equal(plan.skipped.length, 0);
+    assert.equal(plan.creates.length, 1);
+    assert.equal(plan.creates[0].fingerprint, "vw|golf|2019|145000");
+  });
+
+  it("überspringt Zeilen, aus denen sich keine Kennung bilden lässt", () => {
+    // Ohne Baujahr und Kilometerstand wären zwei VW Golf nicht mehr
+    // auseinanderzuhalten.
+    const parsed = parseVehicleCsv(csv(`;;VW;Golf;Blau;;;;12.500;;`));
     const plan = planVehicleImport({ rows: parsed.rows, existing: [] });
 
     assert.equal(plan.creates.length, 0);
     assert.equal(plan.skipped.length, 1);
-    assert.match(plan.skipped[0].reason, /weder FIN noch GW-Nr/);
+    assert.match(plan.skipped[0].reason, /keine Ersatzkennung/);
   });
 
   it("meldet Dubletten innerhalb einer Datei", () => {
@@ -401,7 +422,8 @@ describe("Fehlerhafte Zeilen", () => {
     assert.equal(parsed.rows.length, 1);
     assert.equal(parsed.rows[0].mileageKm, null);
     assert.equal(parsed.rows[0].priceCents, null);
-    assert.equal(parsed.rows[0].warnings.length, 3);
+    // Kilometer, Baujahr, unlesbarer Preis und der fehlende Preis.
+    assert.equal(parsed.rows[0].warnings.length, 4);
   });
 
   it("warnt bei einer FIN, die nicht 17 Zeichen hat", () => {
