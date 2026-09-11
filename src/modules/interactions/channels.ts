@@ -32,6 +32,7 @@ export const INTERACTION_CHANNEL_ORDER: InteractionChannel[] = [
   "AUTOSCOUT",
   "GEBRAUCHTWAGEN",
   "INSTAGRAM",
+  "TIKTOK",
 ];
 
 /**
@@ -46,6 +47,7 @@ export const INTERACTION_CHANNEL_LABELS: Record<InteractionChannel, string> = {
   AUTOSCOUT: "AutoScout24",
   GEBRAUCHTWAGEN: "gebrauchtwagen.at",
   INSTAGRAM: "Instagram",
+  TIKTOK: "TikTok",
 };
 
 /**
@@ -64,6 +66,7 @@ export const INTERACTION_CHANNEL_MEANINGS: Record<InteractionChannel, string> =
     AUTOSCOUT: "Angebot auf AutoScout24 geöffnet",
     GEBRAUCHTWAGEN: "Angebot auf gebrauchtwagen.at geöffnet",
     INSTAGRAM: "Instagram-Profil geöffnet",
+    TIKTOK: "TikTok-Profil geöffnet",
   };
 
 /**
@@ -79,4 +82,26 @@ export function parseInteractionChannel(
   return (INTERACTION_CHANNEL_ORDER as readonly string[]).includes(raw)
     ? (raw as InteractionChannel)
     : null;
+}
+
+/**
+ * Social-Netzwerk eines `SocialLink` auf einen Zählkanal abbilden.
+ *
+ * Zuvor stand diese Zuordnung als Bedingung im Footer und kannte nur
+ * Instagram – ein TikTok-Link wurde zwar angezeigt, aber nie gezählt. Als
+ * Tabelle steht sie neben den Kanälen selbst: Ein neues Netzwerk braucht hier
+ * eine Zeile und sonst nichts.
+ *
+ * Netzwerke ohne Zählkanal bleiben bewusst zulässig – ihr Link funktioniert
+ * dann wie jeder andere, er taucht nur in keiner Statistik auf.
+ */
+const CHANNEL_BY_SOCIAL_PLATFORM: Record<string, InteractionChannel> = {
+  instagram: "INSTAGRAM",
+  tiktok: "TIKTOK",
+};
+
+export function interactionChannelForSocialPlatform(
+  platform: string,
+): InteractionChannel | null {
+  return CHANNEL_BY_SOCIAL_PLATFORM[platform.trim().toLowerCase()] ?? null;
 }

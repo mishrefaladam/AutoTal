@@ -5,6 +5,7 @@ import { Logo } from "@/components/site/logo";
 import { InteractionLink } from "@/components/site/interaction-link";
 import { SocialIcon, socialLabel } from "@/components/site/social-icon";
 import { LEGAL_NAV, MAIN_NAV } from "@/lib/navigation";
+import { interactionChannelForSocialPlatform } from "@/modules/interactions/channels";
 import { cn } from "@/lib/utils";
 import { buildWhatsAppUrl, generalWhatsAppMessage } from "@/lib/whatsapp";
 import {
@@ -55,10 +56,10 @@ export function SiteFooter({ company }: { company: CompanyDto }) {
               <ul className="mt-6 flex flex-wrap gap-2">
                 {company.socialLinks.map((link) => (
                   <li key={link.id}>
-                    {/* Gezählt wird nur Instagram – für die übrigen Netzwerke
-                        gibt es keinen Kanal, dann bleibt es ein normaler Link. */}
+                    {/* Welche Netzwerke gezählt werden, steht bei den Kanälen
+                        selbst. Netzwerke ohne Zählkanal bleiben normale Links. */}
                     <InteractionLink
-                      channel={link.platform === "instagram" ? "INSTAGRAM" : null}
+                      channel={interactionChannelForSocialPlatform(link.platform)}
                       href={link.url}
                       target="_blank"
                       rel="noopener noreferrer me"

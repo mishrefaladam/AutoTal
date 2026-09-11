@@ -189,6 +189,17 @@ model Vehicle {
   importSource   String?
   /// Auffälligkeiten der zuletzt eingelesenen Zeile, für den Admin lesbar.
   importWarnings String[] @default([])
+  /// Ersatzkennung aus Marke, Modell, Baujahr und Kilometerstand.
+  ///
+  /// Nur belegt, wenn der Bestandsexport weder FIN noch GW-Nr liefert. Sie
+  /// hält fest, woran der Import dieses Fahrzeug beim nächsten Lauf
+  /// wiedererkennt, und bleibt deshalb bewusst so stehen, wie die Datei es
+  /// gesehen hat – eine spätere Korrektur im Admin verändert sie nicht.
+  ///
+  /// Bewusst NICHT eindeutig: Zwei in allen Spalten gleiche Fahrzeuge dürfen
+  /// nebeneinander stehen. Der Import ordnet sie dann keiner Zeile zu, statt
+  /// eine davon zu raten.
+  importFingerprint String?
 
   // -- Preisblatt (PDF) -------------------------------------------------------
   /// Wann zuletzt Daten aus einem Preisblatt übernommen wurden.
@@ -667,6 +678,7 @@ enum InteractionChannel {
   AUTOSCOUT
   GEBRAUCHTWAGEN
   INSTAGRAM
+  TIKTOK
 }
 
 /// Tageszähler für Klicks auf ausgehende Kontakt- und Plattformlinks.

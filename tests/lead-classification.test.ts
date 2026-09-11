@@ -245,6 +245,7 @@ describe("Interaktionszähler und Leads bleiben getrennt", () => {
       "GEBRAUCHTWAGEN",
       "INSTAGRAM",
       "PHONE",
+      "TIKTOK",
       "WHATSAPP",
       "WILLHABEN",
     ]);

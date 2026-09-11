@@ -62,6 +62,7 @@ function emptyByChannel(): Record<InteractionChannel, number> {
     AUTOSCOUT: 0,
     GEBRAUCHTWAGEN: 0,
     INSTAGRAM: 0,
+    TIKTOK: 0,
   };
 }
 
