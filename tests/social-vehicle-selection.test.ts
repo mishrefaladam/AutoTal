@@ -35,13 +35,24 @@ describe("Fahrzeuge für den Beitragsassistenten", () => {
   const query = bodyOf(repository, "export async function listVehiclesForSocial");
 
   it("wählt nach Bestandsstatus aus", () => {
-    assert.match(query, /where:\s*\{\s*status:\s*"IN_STOCK"\s*\}/);
+    // Die Bedingung kommt aus dem gemeinsamen Filterkern; die Vorgabe
+    // "Im Bestand" setzt die Seite und lässt sie über ?status= aufheben.
+    assert.match(query, /where: buildVehicleWhere\(filters\)/);
+
+    const page = readFileSync(
+      "src/app/admin/(protected)/social-media/page.tsx",
+      "utf8",
+    );
+    assert.match(page, /const DEFAULT_STATUS = "IN_STOCK" as const/);
+    assert.match(page, /defaultStatus: DEFAULT_STATUS/);
   });
 
   it("schließt ausgeblendete Fahrzeuge nicht aus", () => {
-    // `active` darf sortieren, aber nicht filtern.
-    // `[^}]` schließt Zeilenumbrüche ein, ein dotAll-Flag braucht es nicht.
-    assert.ok(!/where:[^}]*active:\s*true/.test(query));
+    // `active` darf sortieren, aber nicht filtern. Die Bedingung entsteht im
+    // Filterkern – dort darf das Feld gar nicht vorkommen.
+    const filters = readFileSync("src/modules/vehicles/filters.ts", "utf8");
+    assert.ok(!/\bactive\b/.test(filters));
+    assert.match(query, /orderBy: \[\{ active: "desc" \}/);
   });
 
   it("setzt kein Bild voraus", () => {

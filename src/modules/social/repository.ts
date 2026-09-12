@@ -5,6 +5,7 @@ import type {
   VehicleStatus,
 } from "@/generated/prisma/enums";
 import { prisma } from "@/lib/prisma";
+import { buildVehicleWhere, type VehicleFilters } from "@/modules/vehicles/filters";
 
 /** Lesezugriffe auf Social-Media-Entwürfe (EPIC 7, EPIC 8). */
 
@@ -142,11 +143,23 @@ export type SocialVehicleOption = {
   id: string;
   slug: string;
   title: string;
-  priceCents: number;
+  /**
+   * Preis in Cent oder null, wenn keiner hinterlegt ist.
+   *
+   * In der Datenbank ist der Preis eine Pflichtspalte; 0 stand dort aber bei
+   * Fahrzeugen aus einem früheren fehlerhaften Import. Eine 0 ist kein Preis
+   * und wird hier nicht als "0 €" weitergereicht.
+   */
+  priceCents: number | null;
   /** Erstes Bild oder null. Ohne Bild ist nur der Textentwurf möglich. */
   imageUrl: string | null;
   /** false = im Admin ausgeblendet, aber weiterhin im Bestand. */
   active: boolean;
+  status: VehicleStatus;
+  // Kontext, damit zwei gleich benannte Fahrzeuge unterscheidbar sind.
+  firstRegistration: Date | null;
+  mileageKm: number;
+  stockNumber: string | null;
 };
 
 export type SocialVehicleSelection = {
@@ -180,10 +193,14 @@ export type SocialVehicleSelection = {
  * Quelle (manuell gepflegt), und ein Filter darauf würde eine spätere zweite
  * Quelle still ausschließen.
  */
-export async function listVehiclesForSocial(): Promise<SocialVehicleSelection> {
+export async function listVehiclesForSocial(
+  filters: VehicleFilters,
+): Promise<SocialVehicleSelection> {
   const [vehicles, totalCount] = await Promise.all([
     prisma.vehicle.findMany({
-      where: { status: "IN_STOCK" },
+      // Dieselben Regeln wie in der Fahrzeugverwaltung – siehe filters.ts.
+      // Der Vorgabestatus IN_STOCK kommt von der Seite, nicht von hier.
+      where: buildVehicleWhere(filters),
       select: {
         id: true,
         slug: true,
@@ -192,6 +209,10 @@ export async function listVehiclesForSocial(): Promise<SocialVehicleSelection> {
         variant: true,
         priceCents: true,
         active: true,
+        status: true,
+        firstRegistration: true,
+        mileageKm: true,
+        stockNumber: true,
         images: { orderBy: { position: "asc" }, take: 1, select: { url: true } },
       },
       // Sichtbare zuerst, danach das zuletzt Angelegte.
@@ -207,9 +228,13 @@ export async function listVehiclesForSocial(): Promise<SocialVehicleSelection> {
       title: [vehicle.make, vehicle.model, vehicle.variant]
         .filter(Boolean)
         .join(" "),
-      priceCents: vehicle.priceCents,
+      priceCents: vehicle.priceCents > 0 ? vehicle.priceCents : null,
       imageUrl: vehicle.images[0]?.url ?? null,
       active: vehicle.active,
+      status: vehicle.status,
+      firstRegistration: vehicle.firstRegistration,
+      mileageKm: vehicle.mileageKm,
+      stockNumber: vehicle.stockNumber,
     })),
     totalCount,
   };

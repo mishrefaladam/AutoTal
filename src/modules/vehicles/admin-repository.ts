@@ -3,6 +3,11 @@ import "server-only";
 import { prisma } from "@/lib/prisma";
 import type { DrivetrainType, VehicleStatus } from "@/generated/prisma/enums";
 
+import {
+  buildVehicleWhere,
+  dropInvalidModel,
+  type VehicleFilters,
+} from "./filters";
 import { shortenVin } from "./labels";
 
 /** Lesezugriffe für die Fahrzeugverwaltung im Admin. */
@@ -69,11 +74,72 @@ export async function countVehiclesByStatus(): Promise<VehicleStatusCounts> {
   return counts;
 }
 
+export type VehicleFilterOptions = {
+  /** Marken, die es tatsächlich gibt – alphabetisch, ohne Leerwerte. */
+  makes: string[];
+  /** Modelle der gewählten Marke; ohne Marke: alle Modelle. */
+  models: string[];
+};
+
+/**
+ * Auswahlwerte für die Filterleiste, aus dem echten Bestand.
+ *
+ * `groupBy` statt `distinct`: Das ist ein echtes GROUP BY in der Datenbank,
+ * kein Nachsortieren im Speicher. Zwei kleine Abfragen, parallel, unabhängig
+ * von der Größe des Bestands.
+ *
+ * Der Status grenzt die Optionen mit ein: Wer im Tab "Verkauft" steht, soll
+ * keine Marke angeboten bekommen, die nur im Bestand vorkommt – sonst führt
+ * die Auswahl zu einer leeren Liste. Die Suche grenzt die Optionen bewusst
+ * NICHT ein; sie soll die Auswahl nicht unter dem Nutzer wegziehen, während
+ * er tippt.
+ */
+export async function listVehicleFilterOptions(
+  filters: Pick<VehicleFilters, "status" | "make">,
+): Promise<VehicleFilterOptions> {
+  const scope = filters.status ? { status: filters.status } : {};
+
+  const [makeRows, modelRows] = await Promise.all([
+    prisma.vehicle.groupBy({
+      by: ["make"],
+      where: { ...scope, make: { not: "" } },
+      orderBy: { make: "asc" },
+    }),
+    prisma.vehicle.groupBy({
+      by: ["model"],
+      where: {
+        ...scope,
+        model: { not: "" },
+        ...(filters.make ? { make: filters.make } : {}),
+      },
+      orderBy: { model: "asc" },
+    }),
+  ]);
+
+  return {
+    makes: makeRows.map((row) => row.make),
+    models: modelRows.map((row) => row.model),
+  };
+}
+
+/**
+ * Filter gegen den Bestand abgleichen und die Auswahlwerte dazu laden.
+ *
+ * Gemeinsamer Einstieg für beide Fahrzeuglisten: Ein Modell, das es bei der
+ * gewählten Marke nicht gibt, fällt hier weg – siehe `dropInvalidModel`.
+ */
+export async function resolveVehicleFilters(
+  filters: VehicleFilters,
+): Promise<{ filters: VehicleFilters; options: VehicleFilterOptions }> {
+  const options = await listVehicleFilterOptions(filters);
+  return { filters: dropInvalidModel(filters, options.models), options };
+}
+
 export async function listVehiclesForAdmin(
-  status?: VehicleStatus,
+  filters: VehicleFilters,
 ): Promise<AdminVehicleListItem[]> {
   const rows = await prisma.vehicle.findMany({
-    where: status ? { status } : undefined,
+    where: buildVehicleWhere(filters),
     orderBy: [{ active: "desc" }, { updatedAt: "desc" }],
     select: {
       id: true,

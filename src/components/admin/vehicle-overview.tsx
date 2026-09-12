@@ -3,6 +3,7 @@ import { ArrowRight } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 import type { VehicleStatusCounts } from "@/modules/vehicles/admin-repository";
+import { vehicleFiltersHref, type VehicleFilters } from "@/modules/vehicles/filters";
 import { VEHICLE_STATUS_LABELS } from "@/modules/vehicles/labels";
 import type { VehicleStatus } from "@/generated/prisma/enums";
 
@@ -81,12 +82,17 @@ export function VehicleOverview({
  */
 export function VehicleStatusTabs({
   counts,
-  activeStatus,
+  filters,
 }: {
   counts: VehicleStatusCounts;
-  /** `null` = alle Fahrzeuge. */
-  activeStatus: VehicleStatus | null;
+  /**
+   * Aktuelle Filter der Seite. Der Status daraus bestimmt den aktiven Tab;
+   * Marke, Modell und Suche nimmt jeder Tab-Link mit – ein Statuswechsel soll
+   * die übrige Auswahl nicht verwerfen.
+   */
+  filters: VehicleFilters;
 }) {
+  const activeStatus = filters.status;
   const tabs: { label: string; value: VehicleStatus | null; count: number }[] = [
     { label: "Alle", value: null, count: counts.total },
     ...STATUS_ORDER.map((status) => ({
@@ -110,11 +116,10 @@ export function VehicleStatusTabs({
             key={tab.label}
             role="tab"
             aria-selected={active}
-            href={
-              tab.value
-                ? `/admin/fahrzeuge?status=${tab.value.toLowerCase()}`
-                : "/admin/fahrzeuge"
-            }
+            href={vehicleFiltersHref("/admin/fahrzeuge", {
+              ...filters,
+              status: tab.value,
+            })}
             className={cn(
               "-mb-px rounded-t-md border-b-2 px-3 py-2.5 text-sm font-medium transition-colors",
               "focus-visible:ring-3 focus-visible:ring-ring/50 focus-visible:outline-none",

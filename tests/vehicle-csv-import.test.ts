@@ -530,8 +530,11 @@ describe("Anbindung an Social Media", () => {
 
   it("bringt keine Bilder mit – die Auswahl setzt auch keine voraus", () => {
     assert.ok(!/images:\s*\{/.test(service), "Der Import legt keine Bilder an");
-    assert.match(socialRepository, /where:\s*\{\s*status:\s*"IN_STOCK"\s*\}/);
-    assert.ok(!/where:[^}]*active:\s*true/.test(socialRepository));
+    // Die Auswahl filtert über den gemeinsamen Kern – weder Bild noch
+    // Sichtbarkeit sind dort eine Bedingung.
+    assert.match(socialRepository, /where: buildVehicleWhere\(filters\)/);
+    const filters = readFileSync("src/modules/vehicles/filters.ts", "utf8");
+    assert.ok(!/\bactive\b|images/.test(filters));
   });
 
   it("rät weder Kraftstoff noch Getriebe", () => {

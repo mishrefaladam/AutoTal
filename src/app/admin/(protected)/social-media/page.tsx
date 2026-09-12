@@ -8,6 +8,8 @@ import {
   listSocialDrafts,
   listVehiclesForSocial,
 } from "@/modules/social/repository";
+import { resolveVehicleFilters } from "@/modules/vehicles/admin-repository";
+import { parseVehicleFilters } from "@/modules/vehicles/filters";
 
 export const metadata: Metadata = { title: "Social Media" };
 
@@ -17,9 +19,23 @@ export const metadata: Metadata = { title: "Social Media" };
  * Die Seite zeigt nur den Verbindungsstatus – Zugangstokens verlassen den
  * Server nie.
  */
-export default async function AdminSocialMediaPage() {
+/**
+ * Beworben wird, was im Bestand steht – deshalb ist "Im Bestand" die Vorgabe.
+ * "?status=all" hebt sie auf; reservierte oder verkaufte Fahrzeuge lassen sich
+ * so bewusst auswählen.
+ */
+const DEFAULT_STATUS = "IN_STOCK" as const;
+
+export default async function AdminSocialMediaPage({
+  searchParams,
+}: PageProps<"/admin/social-media">) {
+  // Dieselben Adressparameter und Suchregeln wie unter /admin/fahrzeuge.
+  const { filters, options } = await resolveVehicleFilters(
+    parseVehicleFilters(await searchParams, { defaultStatus: DEFAULT_STATUS }),
+  );
+
   const [vehicleSelection, drafts, connection] = await Promise.all([
-    listVehiclesForSocial(),
+    listVehiclesForSocial(filters),
     listSocialDrafts(),
     getInstagramConnection(),
   ]);
@@ -34,6 +50,9 @@ export default async function AdminSocialMediaPage() {
       <SocialMediaManager
         vehicles={vehicleSelection.vehicles}
         totalVehicleCount={vehicleSelection.totalCount}
+        filters={filters}
+        filterOptions={options}
+        defaultStatus={DEFAULT_STATUS}
         drafts={drafts}
         openAiConfigured={isOpenAIConfigured()}
         deploymentEnvironment={deploymentEnvironment()}

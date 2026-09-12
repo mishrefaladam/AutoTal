@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { describe, it } from "node:test";
 
+import { parseVehicleFilters } from "@/modules/vehicles/filters";
 import { VEHICLE_STATUS_LABELS } from "@/modules/vehicles/labels";
 import { PURCHASE_INQUIRY_CLOSED_STATUSES } from "@/modules/purchase-inquiries/labels";
 
@@ -28,25 +29,29 @@ describe("Statusfilter der eigenen Fahrzeuge", () => {
   });
 
   it("übersetzt jeden URL-Parameter in genau einen Status", () => {
-    const mapping = page.slice(
-      page.indexOf("const STATUS_BY_PARAM"),
-      page.indexOf("};", page.indexOf("const STATUS_BY_PARAM")),
-    );
-
+    // Die Übersetzung liegt im gemeinsamen Filterkern (modules/vehicles/
+    // filters), den auch der Beitragsassistent nutzt – hier über die
+    // Funktion selbst geprüft, nicht über ihren Quelltext.
     for (const status of Object.keys(VEHICLE_STATUS_LABELS)) {
-      assert.ok(
-        mapping.includes(`${status.toLowerCase()}: "${status}"`),
+      assert.equal(
+        parseVehicleFilters({ status: status.toLowerCase() }).status,
+        status,
         `Der Filterwert für ${status} fehlt`,
       );
     }
+    assert.match(page, /parseVehicleFilters\(await searchParams\)/);
   });
 
   it("fällt bei unbekanntem Filterwert auf 'alle' zurück statt zu leeren", () => {
-    assert.match(page, /STATUS_BY_PARAM\[rawStatus\.toLowerCase\(\)\] \?\? null/);
+    assert.equal(parseVehicleFilters({ status: "kaputt" }).status, null);
+    assert.equal(parseVehicleFilters({ status: "" }).status, null);
   });
 
   it("filtert in der Datenbank, nicht erst im Speicher", () => {
-    assert.match(repository, /where: status \? \{ status \} : undefined/);
+    // Status, Marke, Modell und Suche gehen als eine Prisma-Bedingung in die
+    // Abfrage; die Liste wird danach nicht mehr im Speicher gesiebt.
+    assert.match(repository, /where: buildVehicleWhere\(filters\)/);
+    assert.ok(!/rows\.filter\(/.test(repository));
   });
 
   it("zählt je Status in einer einzigen groupBy-Abfrage", () => {

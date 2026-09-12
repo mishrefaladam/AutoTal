@@ -4,6 +4,7 @@ import Link from "next/link";
 import { Car, ExternalLink, ImageOff, Plus, Upload } from "lucide-react";
 
 import { AdminCard, AdminPageHeader } from "@/components/admin/admin-page-header";
+import { VehicleFilterBar } from "@/components/admin/vehicle-filter-bar";
 import {
   VehicleOverview,
   VehicleStatusTabs,
@@ -17,7 +18,12 @@ import { countOpenPurchaseInquiries } from "@/modules/purchase-inquiries/reposit
 import {
   countVehiclesByStatus,
   listVehiclesForAdmin,
+  resolveVehicleFilters,
 } from "@/modules/vehicles/admin-repository";
+import {
+  hasActiveVehicleFilters,
+  parseVehicleFilters,
+} from "@/modules/vehicles/filters";
 import {
   DRIVETRAIN_LABELS,
   VEHICLE_STATUS_LABELS,
@@ -49,32 +55,24 @@ export const metadata: Metadata = { title: "Fahrzeuge" };
  */
 const WILLHABEN_DEALER_ADMIN = "https://motornetzwerk.willhaben.at/";
 
-/** Erlaubte Werte des ?status=-Filters, klein geschrieben wie in der URL. */
-const STATUS_BY_PARAM: Record<string, VehicleStatus> = {
-  in_stock: "IN_STOCK",
-  reserved: "RESERVED",
-  sold: "SOLD",
-};
-
 export default async function AdminVehiclesPage({
   searchParams,
 }: PageProps<"/admin/fahrzeuge">) {
-  const params = await searchParams;
-  const rawStatus = Array.isArray(params.status)
-    ? params.status[0]
-    : params.status;
-
-  // Unbekannte Werte fallen still auf "alle" zurück, statt eine leere Liste
-  // ohne Erklärung zu zeigen.
-  const activeStatus = rawStatus
-    ? (STATUS_BY_PARAM[rawStatus.toLowerCase()] ?? null)
-    : null;
+  // Status, Marke, Modell und Suche stehen in der Adresse:
+  //   /admin/fahrzeuge?status=in_stock&make=BMW&model=X5&q=30d
+  // Unbekannte Werte fallen still auf "alle" zurück. Ein Modell, das es bei
+  // der Marke nicht gibt, fällt beim Abgleich mit dem Bestand weg.
+  const { filters, options } = await resolveVehicleFilters(
+    parseVehicleFilters(await searchParams),
+  );
+  const activeStatus: VehicleStatus | null = filters.status;
 
   const [vehicles, counts, openInquiries] = await Promise.all([
-    listVehiclesForAdmin(activeStatus ?? undefined),
+    listVehiclesForAdmin(filters),
     countVehiclesByStatus(),
     countOpenPurchaseInquiries(),
   ]);
+  const filtered = hasActiveVehicleFilters(filters);
 
   return (
     <>
@@ -133,7 +131,15 @@ export default async function AdminVehiclesPage({
       <VehicleOverview counts={counts} openInquiries={openInquiries} />
 
       {counts.total > 0 && (
-        <VehicleStatusTabs counts={counts} activeStatus={activeStatus} />
+        <>
+          <VehicleStatusTabs counts={counts} filters={filters} />
+          <VehicleFilterBar
+            basePath="/admin/fahrzeuge"
+            filters={filters}
+            makes={options.makes}
+            models={options.models}
+          />
+        </>
       )}
 
       {vehicles.length === 0 ? (
@@ -143,14 +149,18 @@ export default async function AdminVehiclesPage({
             <h2 className="font-display mt-4 text-lg font-bold">
               {counts.total === 0
                 ? "Noch keine Fahrzeuge"
-                : `Kein Fahrzeug mit Status „${
-                    activeStatus ? VEHICLE_STATUS_LABELS[activeStatus] : ""
-                  }“`}
+                : filtered
+                  ? "Keine Fahrzeuge mit diesen Filtern gefunden."
+                  : `Kein Fahrzeug mit Status „${
+                      activeStatus ? VEHICLE_STATUS_LABELS[activeStatus] : ""
+                    }“`}
             </h2>
             <p className="text-muted-foreground mx-auto mt-2 max-w-md text-sm leading-relaxed">
               {counts.total === 0
                 ? "Legen Sie das erste Fahrzeug an. Sie können danach Bilder hochladen und den Status jederzeit ändern."
-                : "Wählen Sie oben einen anderen Status oder legen Sie ein Fahrzeug an."}
+                : filtered
+                  ? "Ändern Sie Suche, Marke oder Modell, oder setzen Sie die Filter zurück."
+                  : "Wählen Sie oben einen anderen Status oder legen Sie ein Fahrzeug an."}
             </p>
             <Button asChild variant="brand" size="xl" className="mt-6">
               <Link href="/admin/fahrzeuge/neu">

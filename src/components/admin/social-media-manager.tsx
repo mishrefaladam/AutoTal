@@ -20,18 +20,12 @@ import {
 } from "lucide-react";
 
 import { AdminCard } from "@/components/admin/admin-page-header";
+import { VehicleFilterBar } from "@/components/admin/vehicle-filter-bar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
-import { formatEuro } from "@/lib/money";
+import { formatEuro, formatKilometers } from "@/lib/money";
 import { cn } from "@/lib/utils";
 import {
   approveDraft,
@@ -43,10 +37,17 @@ import {
   updateDraft,
 } from "@/modules/social/actions";
 import type { SocialDraftListItem } from "@/modules/social/repository";
+import type { VehicleFilterOptions } from "@/modules/vehicles/admin-repository";
+import {
+  hasActiveVehicleFilters,
+  type VehicleFilters,
+} from "@/modules/vehicles/filters";
 import {
   VEHICLE_STATUS_LABELS,
   formatDateTime,
+  formatMonthYear,
 } from "@/modules/vehicles/labels";
+import type { VehicleStatus } from "@/generated/prisma/enums";
 
 /**
  * Beitragsassistent (EPIC 7, EPIC 8).
@@ -60,9 +61,14 @@ import {
 type VehicleOption = {
   id: string;
   title: string;
-  priceCents: number;
+  /** null = kein Preis hinterlegt. Es wird dann keiner angezeigt, keine 0. */
+  priceCents: number | null;
   imageUrl: string | null;
   active: boolean;
+  status: VehicleStatus;
+  firstRegistration: Date | null;
+  mileageKm: number;
+  stockNumber: string | null;
 };
 
 /**
@@ -99,27 +105,40 @@ const STATUS_STYLES: Record<
 export function SocialMediaManager({
   vehicles,
   totalVehicleCount,
+  filters,
+  filterOptions,
+  defaultStatus,
   drafts,
   openAiConfigured,
   deploymentEnvironment,
   instagramConnected,
 }: {
-  /** Fahrzeuge im Bestand – Auswahl für den Textentwurf. */
+  /** Fahrzeuge nach den aktuellen Filtern – Auswahl für den Textentwurf. */
   vehicles: VehicleOption[];
   /** Alle erfassten Fahrzeuge, auch verkaufte. Nur für den leeren Zustand. */
   totalVehicleCount: number;
+  /** Aktive Filter, aus der Adresse gelesen – siehe modules/vehicles/filters. */
+  filters: VehicleFilters;
+  filterOptions: VehicleFilterOptions;
+  defaultStatus: VehicleStatus;
   drafts: SocialDraftListItem[];
   openAiConfigured: boolean;
   deploymentEnvironment: string | null;
   instagramConnected: boolean;
 }) {
-  const [selectedVehicleId, setSelectedVehicleId] = useState<string>(
+  const [chosenVehicleId, setChosenVehicleId] = useState<string>(
     vehicles[0]?.id ?? "",
   );
   const [feedback, setFeedback] = useState<Feedback>(null);
   const [pending, startTransition] = useTransition();
 
+  // Ändert ein Filter die Liste, bleibt die Wahl nur bestehen, wenn das
+  // Fahrzeug noch dabei ist; sonst rückt das erste der neuen Liste nach.
+  const selectedVehicleId = vehicles.some((v) => v.id === chosenVehicleId)
+    ? chosenVehicleId
+    : (vehicles[0]?.id ?? "");
   const selectedVehicle = vehicles.find((v) => v.id === selectedVehicleId);
+  const filtered = hasActiveVehicleFilters(filters) || filters.status !== defaultStatus;
   const vehiclesWithImage = vehicles.filter(
     (vehicle) => vehicle.imageUrl !== null,
   ).length;
@@ -186,39 +205,120 @@ export function SocialMediaManager({
           </div>
         )}
 
+        {/*
+          * Dieselbe Filterleiste wie in der Fahrzeugverwaltung, mit eigenem
+          * Statusfeld: Vorgabe "Im Bestand", auf Wunsch auch reservierte,
+          * verkaufte oder alle. Jede Änderung wird zur Adresse und lädt die
+          * Liste serverseitig neu.
+          */}
+        {(totalVehicleCount > 0 || filtered) && (
+          <VehicleFilterBar
+            basePath="/admin/social-media"
+            filters={filters}
+            makes={filterOptions.makes}
+            models={filterOptions.models}
+            defaultStatus={defaultStatus}
+            showStatus
+          />
+        )}
+
         {vehicles.length === 0 ? (
-          <NoVehiclesState totalVehicleCount={totalVehicleCount} />
-        ) : (
-          <div className="flex flex-col gap-4 sm:flex-row sm:items-end">
-            <div className="flex-1 space-y-2">
-              <Label htmlFor="social-vehicle">Fahrzeug</Label>
-              <Select
-                value={selectedVehicleId}
-                onValueChange={setSelectedVehicleId}
-              >
-                <SelectTrigger id="social-vehicle" className="w-full">
-                  <SelectValue placeholder="Fahrzeug wählen" />
-                </SelectTrigger>
-                <SelectContent>
-                  {vehicles.map((vehicle) => (
-                    <SelectItem key={vehicle.id} value={vehicle.id}>
-                      {vehicle.title} · {formatEuro(vehicle.priceCents)}
-                      {/*
-                       * Beides schließt die Auswahl nicht aus, erklärt aber,
-                       * warum ein Fahrzeug hier auftaucht bzw. was ihm zur
-                       * Veröffentlichung noch fehlt.
-                       */}
-                      {!vehicle.active && " · ausgeblendet"}
-                      {vehicle.imageUrl === null && " · ohne Bild"}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+          filtered ? (
+            <div className="border-border rounded-xl border border-dashed py-10 text-center">
+              <p className="text-sm font-medium">
+                Keine Fahrzeuge mit diesen Filtern gefunden.
+              </p>
+              <p className="text-muted-foreground mt-1 text-sm">
+                Ändern Sie Suche, Marke, Modell oder Status.
+              </p>
             </div>
+          ) : (
+            <NoVehiclesState totalVehicleCount={totalVehicleCount} />
+          )
+        ) : (
+          <div className="flex flex-col gap-4">
+            <fieldset className="space-y-2">
+              <legend className="text-sm font-medium">Fahrzeug</legend>
+              {/*
+                * Liste statt Aufklappfeld: Mit Bild, Erstzulassung, Kilometer
+                * und GW-Nr sind zwei gleich benannte Fahrzeuge auseinander-
+                * zuhalten. Die Filter darüber halten die Liste kurz.
+                */}
+              <div
+                role="radiogroup"
+                aria-label="Fahrzeug für den Beitrag"
+                className="border-border max-h-96 divide-y overflow-y-auto rounded-lg border"
+              >
+                {vehicles.map((vehicle) => {
+                  const selected = vehicle.id === selectedVehicleId;
+
+                  return (
+                    <button
+                      key={vehicle.id}
+                      type="button"
+                      role="radio"
+                      aria-checked={selected}
+                      onClick={() => setChosenVehicleId(vehicle.id)}
+                      className={cn(
+                        "flex w-full items-center gap-3 px-3 py-2.5 text-left text-sm transition-colors",
+                        "focus-visible:ring-3 focus-visible:ring-ring/50 focus-visible:outline-none",
+                        selected ? "bg-brand-subtle" : "hover:bg-muted/60",
+                      )}
+                    >
+                      <div className="bg-muted relative size-12 shrink-0 overflow-hidden rounded-md">
+                        {vehicle.imageUrl ? (
+                          <Image
+                            src={vehicle.imageUrl}
+                            alt=""
+                            fill
+                            sizes="48px"
+                            className="object-cover"
+                          />
+                        ) : (
+                          <ImageOff
+                            className="text-muted-foreground absolute top-1/2 left-1/2 size-4 -translate-x-1/2 -translate-y-1/2"
+                            aria-hidden="true"
+                          />
+                        )}
+                      </div>
+
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate font-medium">
+                          {vehicle.title}
+                          {vehicle.status !== "IN_STOCK" && (
+                            <span className="text-muted-foreground font-normal">
+                              {" "}· {VEHICLE_STATUS_LABELS[vehicle.status]}
+                            </span>
+                          )}
+                        </p>
+                        <p className="text-muted-foreground tabular truncate text-xs">
+                          {[
+                            formatMonthYear(vehicle.firstRegistration),
+                            formatKilometers(vehicle.mileageKm),
+                            // Ohne Preis steht hier nichts – keine "0 €".
+                            vehicle.priceCents !== null
+                              ? formatEuro(vehicle.priceCents)
+                              : null,
+                            vehicle.stockNumber
+                              ? `GW-Nr. ${vehicle.stockNumber}`
+                              : null,
+                            !vehicle.active ? "ausgeblendet" : null,
+                            vehicle.imageUrl === null ? "ohne Bild" : null,
+                          ]
+                            .filter(Boolean)
+                            .join(" · ")}
+                        </p>
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            </fieldset>
 
             <Button
               variant="brand"
               size="2xl"
+              className="self-start"
               onClick={handleGenerate}
               disabled={pending || !openAiConfigured || !selectedVehicleId}
             >
@@ -276,7 +376,15 @@ export function SocialMediaManager({
             <div className="min-w-0 text-sm">
               <p className="font-medium">{selectedVehicle.title}</p>
               <p className="text-muted-foreground tabular">
-                {formatEuro(selectedVehicle.priceCents)}
+                {[
+                  formatMonthYear(selectedVehicle.firstRegistration),
+                  formatKilometers(selectedVehicle.mileageKm),
+                  selectedVehicle.priceCents !== null
+                    ? formatEuro(selectedVehicle.priceCents)
+                    : "kein Preis hinterlegt",
+                ]
+                  .filter(Boolean)
+                  .join(" · ")}
               </p>
 
               {selectedVehicle.imageUrl === null && (
