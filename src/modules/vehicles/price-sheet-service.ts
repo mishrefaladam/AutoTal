@@ -1,4 +1,5 @@
 import "server-only";
+import { mergeEquipment } from "./equipment";
 
 import {
   MAX_UPLOAD_REQUEST_BYTES,
@@ -66,7 +67,7 @@ export type PriceSheetField =
   | "color"
   | "stockNumber"
   | "priceCents"
-  | "highlights"
+  | "features"
   | "description";
 
 export const PRICE_SHEET_FIELD_LABELS: Record<PriceSheetField, string> = {
@@ -80,7 +81,7 @@ export const PRICE_SHEET_FIELD_LABELS: Record<PriceSheetField, string> = {
   color: "Farbe",
   stockNumber: "GW-Nr",
   priceCents: "Preis",
-  highlights: "Highlights",
+  features: "Ausstattung",
   description: "Beschreibung",
 };
 
@@ -197,6 +198,7 @@ type VehicleSnapshot = {
   color: string | null;
   stockNumber: string | null;
   priceCents: number;
+  features: string[];
   highlights: string[];
   description: string;
 };
@@ -282,9 +284,9 @@ function buildEntries(
       values.priceCents === null ? null : formatEuro(values.priceCents),
     ),
     buildEntry(
-      "highlights",
-      vehicle.highlights.length > 0 ? vehicle.highlights.join(", ") : null,
-      values.highlights.length > 0 ? values.highlights.join(", ") : null,
+      "features",
+      mergeEquipment(vehicle.features, vehicle.highlights).join(", ") || null,
+      values.features.length > 0 ? values.features.join(", ") : null,
     ),
     buildEntry("description", vehicle.description || null, values.description, {
       // Auch bei leerem Feld nie vorausgewählt: Der Text stammt aus einem
@@ -395,6 +397,7 @@ async function loadVehicle(vehicleId: string): Promise<VehicleSnapshot> {
       color: true,
       stockNumber: true,
       priceCents: true,
+      features: true,
       highlights: true,
       description: true,
     },
@@ -467,8 +470,14 @@ export async function applyPriceSheet(input: {
   if (accepted.has("priceCents") && values.priceCents !== null) {
     data.priceCents = values.priceCents;
   }
-  if (accepted.has("highlights") && values.highlights.length > 0) {
-    data.highlights = values.highlights;
+  if (accepted.has("features") && values.features.length > 0) {
+    // Ergänzen, nicht ersetzen: Was das Blatt nennt, kommt zur gepflegten
+    // Ausstattung dazu. Frühere Highlights wandern dabei mit in die
+    // Ausstattung und die veraltete Spalte wird geleert – wie beim Speichern
+    // im Admin.
+    const current = await loadVehicle(input.vehicleId);
+    data.features = mergeEquipment(current.features, current.highlights, values.features);
+    data.highlights = [];
   }
   if (accepted.has("description") && values.description) {
     data.description = values.description;

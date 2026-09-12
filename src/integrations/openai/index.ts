@@ -20,6 +20,7 @@ import {
   TRANSMISSION_LABELS,
   formatRegistration,
 } from "@/modules/vehicles/labels";
+import { mergeEquipment } from "@/modules/vehicles/equipment";
 import type { VehicleDetail } from "@/modules/vehicles/types";
 
 /**
@@ -140,7 +141,7 @@ STIL:
 - Klinge wie ein modernes Autohaus, nicht wie ein Chatbot und nicht wie generische Werbung.
 - Verwende vier bis sieben kurze Inhaltsblöcke und insgesamt höchstens ${maxCharacters} Zeichen inklusive Leerzeichen, aber ohne separat ausgegebene Hashtags.
 - Beginne mit einem kurzen, konkreten Einstieg und nenne danach Marke und Modell.
-- Nenne drei bis fünf kompakte Highlights nur dann, wenn entsprechende Daten vorhanden sind. Nutze Aufzählungspunkte. Gibt es keine Highlights, lasse den gesamten Highlights-Block weg.
+- Nutze ausschließlich tatsächlich vorhandene Ausstattung und Extras. Wähle bei vielen Werten fünf bis acht verkaufsrelevante Ausstattungen aus; zähle nicht zwanghaft alle Merkmale auf. Vermeide Dubletten. Bei weniger Angaben nenne nur diese. Eine Überschrift "Highlights" ist erlaubt, aber keine eigene Faktenquelle. Fehlt Ausstattung vollständig, lasse den Block weg.
 - Verwende höchstens drei passende Emojis. Emojis sind optional.
 - Erwähne AutoTal als Autohaus bei Wien und schließe mit einer klaren Kontaktaufforderung, zum Beispiel einer Anfrage oder Terminvereinbarung.
 - Setze KEINE Hashtags in den Fließtext; die kommen separat.
@@ -211,20 +212,15 @@ export function buildVehiclePrompt(
     facts.push(`Gesamtgewicht: ${formatNumber(vehicle.grossWeightKg)} kg`);
   }
 
-  // Ausstattung, Extras und Highlights sind drei verschiedene Listen und
-  // werden getrennt übergeben – zusammengeworfen ließe sich später nicht mehr
-  // sagen, was Serie und was nachgerüstet ist.
-  if (vehicle.features.length > 0) {
-    facts.push(`Ausstattung: ${vehicle.features.join(", ")}`);
+  const equipment = mergeEquipment(vehicle.features, vehicle.highlights);
+  if (equipment.length > 0) {
+    facts.push(`Ausstattung:\n${equipment.map((value) => `  - ${value}`).join("\n")}`);
   }
 
   if (vehicle.extras.length > 0) {
     facts.push(`Extras: ${vehicle.extras.join(", ")}`);
   }
 
-  if (vehicle.highlights.length > 0) {
-    facts.push(`Highlights: ${vehicle.highlights.join(", ")}`);
-  }
 
   if (vehicle.description) {
     facts.push(`Beschreibung des Händlers: ${vehicle.description}`);

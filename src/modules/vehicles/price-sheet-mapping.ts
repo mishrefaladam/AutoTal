@@ -1,3 +1,4 @@
+import { equipmentLines, mergeEquipment } from "./equipment";
 import type { FuelType, TransmissionType } from "@/generated/prisma/enums";
 
 import { parseEuroToCents, parseGermanInteger } from "./csv-import";
@@ -271,7 +272,7 @@ export type PriceSheetValues = {
   /** Bestandsnummer, falls das Blatt sie ausweist. */
   stockNumber: string | null;
   priceCents: number | null;
-  highlights: string[];
+  features: string[];
   description: string | null;
   descriptionDropped: number;
 };
@@ -281,7 +282,7 @@ function collectHighlights(fields: PriceSheetFields): string[] {
   const found: { index: number; value: string }[] = [];
 
   for (const [name, value] of Object.entries(fields)) {
-    const match = /^Highlights?_(\d+)$/i.exec(name);
+    const match = /^(?:Highlights?|Features?|Ausstattung)_(\d+)$/i.exec(name);
     if (!match) continue;
 
     const trimmed = value.trim();
@@ -316,7 +317,10 @@ export function mapPriceSheet(fields: PriceSheetFields): PriceSheetValues {
     color: read("Farbe") || null,
     stockNumber: read("GW-Nr") || null,
     priceCents: read("Preis") ? parseEuroToCents(read("Preis")) : null,
-    highlights: collectHighlights(fields),
+    features: mergeEquipment(
+      equipmentLines(read("Ausstattung")), equipmentLines(read("Features")),
+      equipmentLines(read("Highlights")), collectHighlights(fields),
+    ),
     description: description && description.text !== "" ? description.text : null,
     descriptionDropped: description?.droppedParagraphs ?? 0,
   };

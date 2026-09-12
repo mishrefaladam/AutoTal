@@ -5,6 +5,8 @@ import { useRouter } from "next/navigation";
 import { Controller, useForm, useWatch } from "react-hook-form";
 import { Loader2, Save } from "lucide-react";
 
+import { EquipmentSelect } from "@/components/admin/equipment-select";
+import { EQUIPMENT_CATALOG, EXTRAS_CATALOG } from "@/modules/vehicles/equipment-catalog";
 import { AdminCard } from "@/components/admin/admin-page-header";
 import {
   FormField,
@@ -554,39 +556,13 @@ export function VehicleForm({
             )}
           </FormField>
 
-          <FormField
-            label="Extras"
-            htmlFor="v-extras"
-            error={errors.extras?.message}
-            description="Zusätzlich verbaute Ausstattung, eine Zeile je Eintrag."
-          >
+          <FormField label="Extras" htmlFor="v-extras" error={errors.extras?.message}>
             {({ id, describedBy, invalid }) => (
-              <Textarea
-                id={id}
-                rows={4}
-                placeholder={"Anhängerkupplung\nStandheizung"}
-                aria-invalid={invalid}
-                aria-describedby={describedBy}
-                {...form.register("extras")}
-              />
-            )}
-          </FormField>
-
-          <FormField
-            label="Highlights"
-            htmlFor="v-highlights"
-            error={errors.highlights?.message}
-            description="Kurze Verkaufsargumente, eine Zeile je Eintrag. Das Preisblatt liefert bis zu zwölf davon."
-          >
-            {({ id, describedBy, invalid }) => (
-              <Textarea
-                id={id}
-                rows={5}
-                placeholder={"Navigationssystem\nLederausstattung\nSitzheizung vorne"}
-                aria-invalid={invalid}
-                aria-describedby={describedBy}
-                {...form.register("highlights")}
-              />
+              <Controller control={form.control} name="extras" render={({ field }) => (
+                <EquipmentSelect id={id} value={field.value} onChange={field.onChange}
+                  onBlur={field.onBlur} catalog={EXTRAS_CATALOG}
+                  disabled={submitting} invalid={invalid} describedBy={describedBy} />
+              )} />
             )}
           </FormField>
 
@@ -607,22 +583,13 @@ export function VehicleForm({
             )}
           </FormField>
 
-          <FormField
-            label="Ausstattung"
-            htmlFor="v-features"
-            error={errors.features?.message}
-            description="Ein Merkmal pro Zeile – so lässt sich eine Liste aus dem Inserat direkt hineinkopieren."
-          >
+          <FormField label="Ausstattung" htmlFor="v-features" error={errors.features?.message}>
             {({ id, describedBy, invalid }) => (
-              <Textarea
-                id={id}
-                rows={10}
-                placeholder={"Navigationssystem\nRückfahrkamera\nSitzheizung vorne"}
-                className="font-mono text-sm"
-                aria-invalid={invalid}
-                aria-describedby={describedBy}
-                {...form.register("features")}
-              />
+              <Controller control={form.control} name="features" render={({ field }) => (
+                <EquipmentSelect id={id} value={field.value} onChange={field.onChange}
+                  onBlur={field.onBlur} catalog={EQUIPMENT_CATALOG}
+                  disabled={submitting} invalid={invalid} describedBy={describedBy} />
+              )} />
             )}
           </FormField>
         </div>

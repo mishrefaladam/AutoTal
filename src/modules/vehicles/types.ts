@@ -74,7 +74,7 @@ export type VehicleDetail = VehicleListItem & {
   vehicleType: string | null;
   /** Zusätzlich verbaute Extras, getrennt von der Serienausstattung. */
   extras: string[];
-  /** Kurze Verkaufsargumente, z. B. aus dem Preisblatt. */
+  /** @deprecated Legacy inputs only; merged into features by the mapper. */
   highlights: string[];
   inspectionValidUntil: Date | null;
   externalSource: string;

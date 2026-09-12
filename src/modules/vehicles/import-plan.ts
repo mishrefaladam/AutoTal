@@ -1,4 +1,5 @@
 import type { ParsedVehicleRow } from "./csv-import";
+import { mergeEquipment } from "./equipment";
 
 /**
  * Was ein Import mit dem Bestand machen würde – als reine Berechnung.
@@ -15,6 +16,7 @@ import type { ParsedVehicleRow } from "./csv-import";
 export const IMPORT_SOURCE = "csv-import";
 
 export type ExistingVehicle = {
+  features?: string[];
   id: string;
   title: string;
   stockNumber: string | null;
@@ -36,6 +38,7 @@ export type ExistingVehicle = {
 
 /** Fachliche Werte, die eine Importzeile setzt. Alles andere bleibt unberührt. */
 export type ImportValues = {
+  features?: string[];
   make: string;
   model: string;
   color: string | null;
@@ -176,6 +179,7 @@ function sameDay(a: Date | null, b: Date | null): boolean {
 
 function toValues(row: ParsedVehicleRow, fallback?: ExistingVehicle): ImportValues {
   return {
+    ...(row.features?.length ? { features: mergeEquipment(fallback?.features ?? [], row.features) } : {}),
     make: row.make,
     model: row.model,
     // Leere Spalten überschreiben nichts: Was im Admin ergänzt wurde, bleibt
@@ -192,6 +196,9 @@ function toValues(row: ParsedVehicleRow, fallback?: ExistingVehicle): ImportValu
 
 function diff(values: ImportValues, existing: ExistingVehicle): (keyof ImportValues)[] {
   const changed: (keyof ImportValues)[] = [];
+  if (values.features && JSON.stringify(values.features) !== JSON.stringify(existing.features ?? [])) {
+    changed.push("features");
+  }
 
   if (values.make !== existing.make) changed.push("make");
   if (values.model !== existing.model) changed.push("model");

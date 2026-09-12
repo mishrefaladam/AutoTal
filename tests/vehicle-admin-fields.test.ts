@@ -154,9 +154,9 @@ describe("Bearbeitbare Felder", () => {
       }),
     );
 
-    assert.deepEqual(parsed.features, ["Klimaautomatik", "Sitzheizung vorne"]);
+    assert.deepEqual(parsed.features, ["Klimaautomatik", "Sitzheizung vorne", "ABS", "Alufelgen", "Navigationssystem"]);
     assert.deepEqual(parsed.extras, ["Anhängerkupplung"]);
-    assert.deepEqual(parsed.highlights, ["ABS", "Alufelgen", "Navigationssystem"]);
+    assert.equal("highlights" in parsed, false);
   });
 
   it("speichert die Beschreibung", () => {
@@ -220,7 +220,7 @@ describe("CSV-Import und manuelle Pflege", () => {
       importPlan.indexOf("export type PlannedCreate"),
     );
 
-    for (const forbidden of ["description", "features", "extras", "highlights"]) {
+    for (const forbidden of ["description", "extras", "highlights"]) {
       assert.ok(!block.includes(forbidden));
     }
   });

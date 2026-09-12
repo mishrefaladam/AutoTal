@@ -156,6 +156,7 @@ model Vehicle {
   /// Zusätzlich verbaute Extras, getrennt von der Serienausstattung.
   extras      String[] @default([])
   /// Kurze Verkaufsargumente. Das Preisblatt liefert sie als Highlights_1..12.
+  /// Deprecated: data migrated into features; retained for older clients.
   highlights  String[] @default([])
 
   // -- Bestandsführung -------------------------------------------------------

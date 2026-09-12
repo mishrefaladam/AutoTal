@@ -14,6 +14,7 @@ import {
   type PlannedCreate,
 } from "./import-plan";
 import { buildVehicleSlug, buildVehicleTitle } from "./slug";
+import { mergeEquipment } from "./equipment";
 
 /**
  * Ausführung des CSV-Bestandsimports.
@@ -151,6 +152,8 @@ async function loadExistingVehicles(): Promise<ExistingVehicle[]> {
       make: true,
       model: true,
       variant: true,
+      features: true,
+      highlights: true,
       color: true,
       stockNumber: true,
       vin: true,
@@ -166,6 +169,7 @@ async function loadExistingVehicles(): Promise<ExistingVehicle[]> {
   });
 
   return rows.map((row) => ({
+    features: mergeEquipment(row.features, row.highlights),
     id: row.id,
     title: buildVehicleTitle(row),
     stockNumber: row.stockNumber,

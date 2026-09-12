@@ -244,7 +244,7 @@ describe("Felder aus dem Preisblatt", () => {
   });
 
   it("liest alle Highlights in der Reihenfolge der Vorlage", () => {
-    assert.deepEqual(values.highlights, [
+    assert.deepEqual(values.features, [
       "ABS",
       "Alufelgen",
       "Lederausstattung",
@@ -743,7 +743,7 @@ describe("Anbindung an Social Media", () => {
   it("erfindet weiterhin nichts", () => {
     assert.match(openai, /if \(vehicle\.fuel\) facts\.push/);
     assert.match(openai, /if \(vehicle\.extras\.length > 0\)/);
-    assert.match(openai, /if \(vehicle\.highlights\.length > 0\)/);
+    assert.match(openai, /if \(equipment\.length > 0\)/);
   });
 
   it("verwendet das erste Bild des Fahrzeugs für den Entwurf", () => {

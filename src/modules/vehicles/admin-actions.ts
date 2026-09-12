@@ -76,7 +76,7 @@ function toVehicleData(
     description: data.description,
     features: data.features,
     extras: data.extras,
-    highlights: data.highlights,
+    highlights: [],
     status: data.status as never,
     internalNotes: data.internalNotes,
     // Das Verkaufsdatum führt sich selbst: Es wird beim Wechsel auf SOLD

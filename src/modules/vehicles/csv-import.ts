@@ -13,6 +13,8 @@
  * testbar. Geschrieben wird erst in `import-service.ts`.
  */
 
+import { mergeEquipment } from "./equipment";
+
 // ---------------------------------------------------------------------------
 // Datei einlesen
 // ---------------------------------------------------------------------------
@@ -258,6 +260,8 @@ export type VehicleCsvField =
   | "salePrice"
   | "offerPrice"
   | "listedOn"
+  | "features"
+  | "highlights"
   | "standingDays";
 
 export const FIELD_LABELS: Record<VehicleCsvField, string> = {
@@ -271,6 +275,8 @@ export const FIELD_LABELS: Record<VehicleCsvField, string> = {
   salePrice: "Verkaufspreis",
   offerPrice: "Angebotspreis",
   listedOn: "online auf",
+  features: "Ausstattung",
+  highlights: "Bisherige Ausstattung",
   standingDays: "Standzeit (Tage)",
 };
 
@@ -299,6 +305,8 @@ const HEADER_ALIASES: Record<VehicleCsvField, string[]> = {
   salePrice: ["Verkaufspreis", "Preis", "VK-Preis", "Listenpreis", "Price"],
   offerPrice: ["Angebotspreis", "Aktionspreis", "Internetpreis"],
   listedOn: ["online auf", "online", "Plattform", "Plattformen", "inseriert auf"],
+  features: ["Ausstattung", "Features", "Serienausstattung", "Ausstattungen"],
+  highlights: ["Highlights", "Highlight"],
   standingDays: ["Standzeit (Tage)", "Standzeit", "Standtage", "Tage im Bestand"],
 };
 
@@ -354,6 +362,7 @@ export function mapColumns(headerRow: string[]): ColumnMapping {
 // ---------------------------------------------------------------------------
 
 export type ParsedVehicleRow = {
+  features?: string[];
   /** Zeilennummer in der Datei, 1-basiert inklusive Kopfzeile. */
   line: number;
   stockNumber: string | null;
@@ -562,8 +571,15 @@ export function parseVehicleCsv(text: string): ParsedCsv {
       }
 
       const standingRaw = read("standingDays");
+      // Keep commas within equipment names. Lists use newlines, semicolons or pipes.
+      const features = mergeEquipment(...(["features", "highlights"] as const).map((field) => {
+        const index = byField.get(field);
+        return index === undefined ? [] : (row[index] ?? "")
+          .split(/[\r\n;|]+/).map((entry) => sanitizeCell(entry).value);
+      }));
 
       rows.push({
+        ...(features.length > 0 ? { features } : {}),
         line,
         stockNumber: read("stockNumber") || null,
         vin,

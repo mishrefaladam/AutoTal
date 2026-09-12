@@ -15,6 +15,7 @@ import { centsToEuros, formatEuro, formatKilometers } from "@/lib/money";
 import { formatMonthYear } from "@/modules/vehicles/labels";
 import { getVehicleForEdit } from "@/modules/vehicles/admin-repository";
 import type { VehicleFormValues } from "@/modules/vehicles/admin-schemas";
+import { mergeEquipment } from "@/modules/vehicles/equipment";
 
 export const metadata: Metadata = { title: "Fahrzeug bearbeiten" };
 
@@ -80,9 +81,8 @@ export default async function EditVehiclePage({
       vehicle.previousOwners !== null ? String(vehicle.previousOwners) : "",
     inspectionValidUntil: toDateValue(vehicle.inspectionValidUntil),
     description: vehicle.description,
-    features: vehicle.features.join("\n"),
+    features: mergeEquipment(vehicle.features, vehicle.highlights).join("\n"),
     extras: vehicle.extras.join("\n"),
-    highlights: vehicle.highlights.join("\n"),
     internalNotes: vehicle.internalNotes,
     active: vehicle.active,
   };

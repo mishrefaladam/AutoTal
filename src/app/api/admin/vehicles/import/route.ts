@@ -38,6 +38,7 @@ export const maxDuration = 60;
 const PREVIEW_ROW_LIMIT = 25;
 
 const CHANGED_FIELD_LABELS: Record<keyof ImportValues, string> = {
+  features: "Ausstattung",
   make: "Marke",
   model: "Modell",
   color: "Farbe",

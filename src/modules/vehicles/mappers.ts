@@ -3,6 +3,7 @@ import type { VehicleModel } from "@/generated/prisma/models/Vehicle";
 import type { VehicleImageModel } from "@/generated/prisma/models/VehicleImage";
 
 import { buildVehicleTitle } from "./slug";
+import { mergeEquipment } from "./equipment";
 import type { VehicleDetail, VehicleImageDto, VehicleListItem } from "./types";
 
 /**
@@ -59,7 +60,7 @@ export function toVehicleDetail(vehicle: VehicleWithImages): VehicleDetail {
     ...listItem,
     images: sorted.map((image) => toImageDto(image, listItem.title)),
     description: vehicle.description,
-    features: vehicle.features,
+    features: mergeEquipment(vehicle.features, vehicle.highlights),
     color: vehicle.color,
     doors: vehicle.doors,
     seats: vehicle.seats,
@@ -69,7 +70,7 @@ export function toVehicleDetail(vehicle: VehicleWithImages): VehicleDetail {
     nationalCode: vehicle.nationalCode,
     vehicleType: vehicle.vehicleType,
     extras: vehicle.extras,
-    highlights: vehicle.highlights,
+    highlights: [],
     inspectionValidUntil: vehicle.inspectionValidUntil,
     externalSource: vehicle.externalSource,
     externalId: vehicle.externalId,

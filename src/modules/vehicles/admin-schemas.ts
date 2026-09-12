@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { equipmentLines, MAX_CUSTOM_EQUIPMENT_LENGTH, mergeEquipment } from "./equipment";
 
 import {
   BodyType,
@@ -129,14 +130,11 @@ function optionalEnum(values: Record<string, string>) {
 function lineList(label: string, max: number) {
   return z
     .string()
-    .max(4000, `${label} ist zu lang.`)
-    .transform((value) =>
-      value
-        .split("\n")
-        .map((line) => line.trim())
-        .filter(Boolean)
-        .slice(0, max),
-    );
+    .max(100_000, `${label} ist zu lang.`)
+    .transform(equipmentLines)
+    .refine((values) => values.length <= max, `${label}: höchstens ${max} Einträge.`)
+    .refine((values) => values.every((value) => value.length <= MAX_CUSTOM_EQUIPMENT_LENGTH),
+      `Höchstens ${MAX_CUSTOM_EQUIPMENT_LENGTH} Zeichen pro Eintrag.`);
 }
 
 export const vehicleFormSchema = z.object({
@@ -216,11 +214,11 @@ export const vehicleFormSchema = z.object({
    * angenehmer als Komma-Trennung, weil Ausstattungsnamen selbst Kommas
    * enthalten können ("Sitzheizung vorne, beheizbares Lenkrad").
    */
-  features: lineList("Die Ausstattungsliste", 100),
+  features: lineList("Die Ausstattungsliste", 500),
   /** Zusätzlich verbaute Extras, getrennt von der Serienausstattung. */
-  extras: lineList("Die Extras-Liste", 100),
-  /** Kurze Verkaufsargumente; das Preisblatt liefert bis zu zwölf davon. */
-  highlights: lineList("Die Highlights-Liste", 30),
+  extras: lineList("Die Extras-Liste", 500),
+  /** Compatibility with old clients. No separate editor. */
+  highlights: lineList("Die bisherige Ausstattungsliste", 500).optional(),
 
   /** Nur im Admin sichtbar, wird nie öffentlich ausgegeben. */
   internalNotes: z
@@ -229,7 +227,10 @@ export const vehicleFormSchema = z.object({
     .max(2000, "Die interne Notiz ist zu lang."),
 
   active: z.boolean(),
-});
+}).transform(({ highlights, ...values }) => ({
+  ...values,
+  features: mergeEquipment(values.features, highlights ?? []),
+}));
 
 export type VehicleFormValues = z.input<typeof vehicleFormSchema>;
 export type VehicleFormInput = z.output<typeof vehicleFormSchema>;
@@ -269,7 +270,6 @@ export const EMPTY_VEHICLE_FORM: VehicleFormValues = {
   description: "",
   features: "",
   extras: "",
-  highlights: "",
   internalNotes: "",
   active: true,
 };
