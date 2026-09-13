@@ -2,7 +2,11 @@ import assert from "node:assert/strict";
 import { existsSync, readFileSync } from "node:fs";
 import { describe, it } from "node:test";
 
-import { parsePdfObjects } from "@/modules/vehicles/price-sheet";
+import {
+  decodeImage,
+  extractImageMetadata,
+  parsePdfObjects,
+} from "@/modules/vehicles/price-sheet";
 import {
   isVehicleListPdf,
   parseToUnicodeCMap,
@@ -337,5 +341,57 @@ describe("Echte Fahrzeugliste", { skip: !existsSync(REAL) }, () => {
     const master = list.cards.find((c) => c.model === "Master");
     assert.equal(master?.drivetrain, null);
     assert.equal(master?.displacementCcm, 2299);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Vorschau ohne Bilddaten
+// ---------------------------------------------------------------------------
+
+describe("Bilder erst beim Bestätigen", () => {
+  it("liefert in der Vorschau nur Metadaten, keine Bilddaten", () => {
+    const objects = parsePdfObjects(buildListPdf([BMW, MERCEDES]));
+    const metadata = extractImageMetadata(objects);
+
+    const photos = metadata.filter((m) => !m.hasAlpha && m.widthPx >= 120);
+    assert.equal(photos.length, 2);
+    for (const meta of metadata) {
+      assert.ok(!("data" in meta), "Metadaten tragen keine Bytes");
+      assert.ok(meta.decode.kind === "jpeg" || meta.decode.kind === "flate");
+    }
+  });
+
+  it("dekodiert ein einzelnes Bild anhand seiner Metadaten", () => {
+    const objects = parsePdfObjects(buildListPdf([BMW]));
+    const list = parseVehicleListObjects(objects);
+    const meta = extractImageMetadata(objects).find(
+      (m) => m.objectNumber === list.cards[0].image?.objectNumber,
+    );
+    assert.ok(meta);
+
+    const image = decodeImage(objects, meta);
+    assert.ok(image);
+    assert.equal(image.contentType, "image/jpeg");
+    assert.deepEqual([...image.data.subarray(0, 2)], [0xff, 0xd8], "JPEG-Signatur");
+  });
+
+  it("erkennt die Liste im selben Durchlauf, ohne die erste Seite doppelt zu lesen", () => {
+    const list = parseVehicleListObjects(parsePdfObjects(buildListPdf([BMW])));
+    assert.equal(list.recognized, true);
+
+    const other = parseVehicleListObjects(
+      parsePdfObjects(buildListPdf([BMW], { heading: "Preisblatt" })),
+    );
+    assert.equal(other.recognized, false);
+
+    const service = readFileSync("src/modules/vehicles/import-service.ts", "utf8");
+    assert.match(service, /if \(!list\.recognized\)/);
+    assert.ok(!/isVehicleListPdf\(/.test(service), "kein zweiter Seitenlauf im Service");
+  });
+
+  it("liest die CMap je Schrift nur einmal über alle Seiten", () => {
+    const source = readFileSync("src/modules/vehicles/vehicle-list-pdf.ts", "utf8");
+    assert.match(source, /cache: Map<number, FontMap>/);
+    assert.match(source, /const fontCache = new Map<number, FontMap>\(\)/);
   });
 });

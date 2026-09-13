@@ -2,7 +2,8 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { upload } from "@vercel/blob/client";
 import {
   CircleCheck,
   FileSpreadsheet,
@@ -23,7 +24,11 @@ import { formatEuro, formatKilometers } from "@/lib/money";
 import { cn } from "@/lib/utils";
 import {
   IMPORT_ACTION_LABELS,
+  MAX_IMPORT_REQUEST_BYTES,
+  MAX_LIST_PDF_BYTES,
+  MAX_LIST_PDF_DIRECT_BYTES,
   type ImportAction,
+  type ListPdfReference,
   type ImportCommitResponse,
   type ImportPreviewResponse,
 } from "@/modules/vehicles/import-dto";
@@ -58,12 +63,109 @@ const ACTION_STYLES: Record<ImportAction, string> = {
   unchanged: "bg-muted text-muted-foreground",
 };
 
+/**
+ * Wo eine laufende Anfrage gerade steht.
+ *
+ * "uploading" trägt echte Zahlen: Der Browser meldet, wie viele Bytes er
+ * übertragen hat. "analyzing" beginnt, sobald alles hochgeladen ist und der
+ * Server arbeitet – das ist ein Zustand, kein Fortschritt; einen Prozentwert
+ * gäbe es dafür nur erfunden.
+ */
+type Phase =
+  | { kind: "uploading"; what: "pdf" | "request"; sent: number; total: number; withPdf: boolean }
+  | { kind: "analyzing"; withPdf: boolean };
+
+/**
+ * Die gewählte Fahrzeugliste.
+ *
+ * In Produktion liegt sie nach dem direkten Upload im Blob-Store; die
+ * Anwendung kennt nur noch den Pfad. Ohne Blob-Token (lokal) geht die Datei
+ * den alten Weg im Request – dann gilt dort das Function-Limit.
+ */
+type PdfSelection =
+  | { kind: "blob"; ref: ListPdfReference }
+  | { kind: "file"; file: File };
+
+const UPLOAD_ROUTE = "/api/admin/vehicles/import/upload";
+
+/** Ab dieser Größe lädt das SDK in Teilen – robuster bei wackliger Leitung. */
+const MULTIPART_FROM_BYTES = 5 * 1024 * 1024;
+
+function isPdfFile(file: File): boolean {
+  return file.type === "application/pdf" || /\.pdf$/i.test(file.name);
+}
+
 type State =
   | { step: "idle" }
-  | { step: "loading" }
+  | { step: "loading"; phase: Phase }
   | { step: "preview"; data: ImportPreviewResponse }
-  | { step: "importing"; data: ImportPreviewResponse }
+  | { step: "importing"; data: ImportPreviewResponse; phase: Phase }
   | { step: "done"; data: ImportCommitResponse };
+
+/** Ab wann der Hinweis erscheint, dass es noch dauert. */
+const SLOW_HINT_AFTER_MS = 15_000;
+
+function formatMegabytes(bytes: number): string {
+  return `${(bytes / 1024 / 1024).toFixed(1).replace(".", ",")} MB`;
+}
+
+/** Was der Server bei der Verarbeitung antwortet – oder eben nicht. */
+type ImportResponse = ImportPreviewResponse | ImportCommitResponse | { error: string };
+
+/**
+ * Anfrage per XMLHttpRequest statt fetch: Nur so meldet der Browser den
+ * Upload-Fortschritt. Für eine mehrere Megabyte große PDF ist das Hochladen
+ * der längste Teil – ohne diese Zahl sähe der Nutzer nur einen Spinner.
+ *
+ * Eine Antwort, die kein JSON ist (etwa ein Plattform-Fehler wie 413 als
+ * Klartext), wird zu einer lesbaren Meldung – nie zu einem Hänger.
+ */
+function sendImportRequest(
+  body: FormData,
+  onProgress: (sent: number, total: number) => void,
+  onUploaded: () => void,
+): Promise<{ ok: boolean; status: number; result: ImportResponse }> {
+  return new Promise((resolve) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open("POST", "/api/admin/vehicles/import");
+    xhr.responseType = "text";
+
+    xhr.upload.onprogress = (event) => {
+      if (event.lengthComputable) onProgress(event.loaded, event.total);
+    };
+    xhr.upload.onload = () => onUploaded();
+
+    xhr.onerror = () =>
+      resolve({
+        ok: false,
+        status: 0,
+        result: {
+          error:
+            "Die Verbindung ist abgebrochen. Bitte prüfen Sie das Netzwerk und " +
+            "versuchen Sie es erneut.",
+        },
+      });
+
+    xhr.onload = () => {
+      let result: ImportResponse;
+      try {
+        result = JSON.parse(xhr.responseText) as ImportResponse;
+      } catch {
+        result = {
+          error:
+            xhr.status === 413
+              ? "Die Dateien sind zusammen zu groß für einen Upload (Grenze 4,5 MB)."
+              : xhr.status >= 500
+                ? "Der Server hat nicht geantwortet. Bitte versuchen Sie es in einem Moment erneut."
+                : `Unerwartete Antwort des Servers (HTTP ${xhr.status}).`,
+        };
+      }
+      resolve({ ok: xhr.status >= 200 && xhr.status < 300, status: xhr.status, result });
+    };
+
+    xhr.send(body);
+  });
+}
 
 export function VehicleImport() {
   const router = useRouter();
@@ -71,39 +173,71 @@ export function VehicleImport() {
   const pdfInputRef = useRef<HTMLInputElement>(null);
 
   const [file, setFile] = useState<File | null>(null);
-  const [pdfFile, setPdfFile] = useState<File | null>(null);
+  const [pdf, setPdf] = useState<PdfSelection | null>(null);
   const [state, setState] = useState<State>({ step: "idle" });
   const [error, setError] = useState<string | null>(null);
   /** Entscheidungen des PDF-Reviews, je Karte. */
   const [decisions, setDecisions] = useState<Record<string, EnrichmentDecision>>({});
 
+  /**
+   * Prüft die Größen vor dem Hochladen. Ein 413 der Plattform käme erst nach
+   * dem vollständigen Upload – und als Klartext, nicht als Antwort der
+   * Anwendung. Besser gar nicht erst losschicken.
+   */
+  function sizeProblem(selected: File, selection: PdfSelection | null): string | null {
+    // Eine direkt hochgeladene PDF ist nicht Teil des Requests – nur der
+    // Rückfall ohne Blob-Speicher unterliegt dem Function-Limit.
+    const inRequest = selection?.kind === "file" ? selection.file.size : 0;
+    if (selection?.kind === "file" && inRequest > MAX_LIST_PDF_BYTES) {
+      return (
+        `Die Fahrzeugliste ist ${formatMegabytes(inRequest)} groß; ohne Blob-Speicher ` +
+        `können höchstens ${formatMegabytes(MAX_LIST_PDF_BYTES)} im Request übertragen werden.`
+      );
+    }
+    if (selected.size + inRequest > MAX_IMPORT_REQUEST_BYTES) {
+      return (
+        `CSV und PDF sind zusammen ${formatMegabytes(selected.size + inRequest)} ` +
+        "groß – mehr als in einem Upload möglich ist (4,5 MB)."
+      );
+    }
+    return null;
+  }
+
   async function send(
     selected: File,
-    pdf: File | null,
+    selection: PdfSelection | null,
     mode: "preview" | "commit",
+    setPhase: (phase: Phase) => void,
   ): Promise<ImportPreviewResponse | ImportCommitResponse | null> {
+    const problem = sizeProblem(selected, selection);
+    if (problem) {
+      setError(problem);
+      return null;
+    }
+
+    // Die PDF geht nie mit: Entweder liegt sie schon im Blob-Store (nur der
+    // Pfad wird genannt), oder – ohne Blob-Speicher – als Datei im Request.
     const body = new FormData();
     body.append("file", selected);
-    if (pdf) body.append("pdf", pdf);
+    if (selection?.kind === "blob") body.append("pdfRef", selection.ref.pathname);
+    if (selection?.kind === "file") body.append("pdf", selection.file);
     if (mode === "commit") {
       body.append("decisions", JSON.stringify(Object.values(decisions)));
     }
     body.append("mode", mode);
 
-    const response = await fetch("/api/admin/vehicles/import", {
-      method: "POST",
+    const withPdf = selection !== null;
+    const total = selected.size + (selection?.kind === "file" ? selection.file.size : 0);
+    setPhase({ kind: "uploading", what: "request", sent: 0, total, withPdf });
+
+    const { ok, result } = await sendImportRequest(
       body,
-    });
+      (sent, total) => setPhase({ kind: "uploading", what: "request", sent, total, withPdf }),
+      () => setPhase({ kind: "analyzing", withPdf }),
+    );
 
-    const result = (await response.json()) as
-      | ImportPreviewResponse
-      | ImportCommitResponse
-      | { error: string };
-
-    if (!response.ok || "error" in result) {
-      setError(
-        "error" in result ? result.error : "Der Import ist fehlgeschlagen.",
-      );
+    if (!ok || "error" in result) {
+      setError("error" in result ? result.error : "Der Import ist fehlgeschlagen.");
       return null;
     }
 
@@ -111,7 +245,7 @@ export function VehicleImport() {
   }
 
   /** Vorschau neu laden – nach jeder Dateiänderung, CSV wie PDF. */
-  async function refreshPreview(selected: File | null, pdf: File | null) {
+  async function refreshPreview(selected: File | null, selection: PdfSelection | null) {
     setError(null);
 
     if (!selected) {
@@ -120,8 +254,14 @@ export function VehicleImport() {
       return;
     }
 
-    setState({ step: "loading" });
-    const result = await send(selected, pdf, "preview");
+    const withPdf = selection !== null;
+    setState({
+      step: "loading",
+      phase: { kind: "uploading", what: "request", sent: 0, total: 0, withPdf },
+    });
+    const result = await send(selected, selection, "preview", (phase) =>
+      setState({ step: "loading", phase }),
+    );
 
     if (result && result.mode === "preview") {
       setState({ step: "preview", data: result });
@@ -134,31 +274,125 @@ export function VehicleImport() {
 
   function handleSelect(selected: File | null) {
     setFile(selected);
-    void refreshPreview(selected, pdfFile);
+    void refreshPreview(selected, pdf);
   }
 
-  function handleSelectPdf(selected: File | null) {
-    setPdfFile(selected);
-    if (file) void refreshPreview(file, selected);
+  /**
+   * Fahrzeugliste gewählt: prüfen, direkt nach Vercel Blob laden, dann die
+   * Vorschau mit dem Pfad neu laden. Scheitert der Upload, endet der
+   * Ladezustand mit einer Meldung – nie mit einem ewigen Spinner.
+   */
+  async function handleSelectPdf(selected: File | null) {
+    if (!selected) {
+      setPdf(null);
+      if (file) void refreshPreview(file, null);
+      return;
+    }
+    if (!file) return;
+
+    setError(null);
+    if (!isPdfFile(selected)) {
+      setError("Bitte eine PDF-Datei auswählen.");
+      if (pdfInputRef.current) pdfInputRef.current.value = "";
+      return;
+    }
+    if (selected.size > MAX_LIST_PDF_DIRECT_BYTES) {
+      setError(
+        `Die Fahrzeugliste ist ${formatMegabytes(selected.size)} groß; möglich sind ` +
+          `höchstens ${formatMegabytes(MAX_LIST_PDF_DIRECT_BYTES)}.`,
+      );
+      if (pdfInputRef.current) pdfInputRef.current.value = "";
+      return;
+    }
+
+    const previous = state.step === "preview" ? state : null;
+    const restore = () =>
+      setState(previous ?? { step: "idle" });
+
+    let selection: PdfSelection;
+    try {
+      const availability = (await (await fetch(UPLOAD_ROUTE)).json()) as {
+        directUpload?: boolean;
+        error?: string;
+      };
+      if (availability.error) throw new Error(availability.error);
+
+      if (availability.directUpload) {
+        setState({
+          step: "loading",
+          phase: { kind: "uploading", what: "pdf", sent: 0, total: selected.size, withPdf: true },
+        });
+        const result = await upload(
+          `temp/vehicle-imports/${crypto.randomUUID()}.pdf`,
+          selected,
+          {
+            access: "public",
+            handleUploadUrl: UPLOAD_ROUTE,
+            contentType: "application/pdf",
+            multipart: selected.size > MULTIPART_FROM_BYTES,
+            onUploadProgress: ({ loaded, total }) =>
+              setState({
+                step: "loading",
+                phase: { kind: "uploading", what: "pdf", sent: loaded, total, withPdf: true },
+              }),
+          },
+        );
+        selection = {
+          kind: "blob",
+          ref: { pathname: result.pathname, name: selected.name, size: selected.size },
+        };
+      } else {
+        selection = { kind: "file", file: selected };
+      }
+    } catch (cause) {
+      setError(
+        cause instanceof Error && cause.message
+          ? `Die Fahrzeugliste konnte nicht hochgeladen werden: ${cause.message}`
+          : "Die Fahrzeugliste konnte nicht hochgeladen werden. Bitte versuchen Sie es erneut.",
+      );
+      if (pdfInputRef.current) pdfInputRef.current.value = "";
+      restore();
+      return;
+    }
+
+    setPdf(selection);
+    void refreshPreview(file, selection);
   }
 
+  /** "PDF entfernen": die temporäre Datei gleich mit wegräumen. */
   function clearPdf() {
     if (pdfInputRef.current) pdfInputRef.current.value = "";
-    handleSelectPdf(null);
+    if (pdf?.kind === "blob") {
+      void fetch(`${UPLOAD_ROUTE}?ref=${encodeURIComponent(pdf.ref.pathname)}`, {
+        method: "DELETE",
+      }).catch(() => undefined);
+    }
+    void handleSelectPdf(null);
   }
 
   async function handleImport() {
     if (!file || state.step !== "preview") return;
 
     setError(null);
-    setState({ step: "importing", data: state.data });
+    const data = state.data;
+    const withPdf = pdf !== null;
+    setState({
+      step: "importing",
+      data,
+      phase: { kind: "uploading", what: "request", sent: 0, total: 0, withPdf },
+    });
 
-    const result = await send(file, pdfFile, "commit");
+    // Dieselbe Blob-Datei wie in der Vorschau – kein zweiter Upload. Nach
+    // erfolgreichem Schreiben löscht der Server sie; bei Fehlern bleibt sie
+    // für einen erneuten Versuch.
+    const result = await send(file, pdf, "commit", (phase) =>
+      setState({ step: "importing", data, phase }),
+    );
 
     if (result && result.mode === "commit") {
       setState({ step: "done", data: result });
       setFile(null);
-      setPdfFile(null);
+      setPdf(null);
       setDecisions({});
       if (inputRef.current) inputRef.current.value = "";
       if (pdfInputRef.current) pdfInputRef.current.value = "";
@@ -227,7 +461,7 @@ export function VehicleImport() {
           type="file"
           accept=".pdf,application/pdf"
           disabled={busy || !file}
-          onChange={(event) => handleSelectPdf(event.target.files?.[0] ?? null)}
+          onChange={(event) => void handleSelectPdf(event.target.files?.[0] ?? null)}
           className={cn(
             "border-border w-full rounded-lg border border-dashed p-4 text-sm",
             "file:border-border file:bg-muted file:mr-4 file:rounded-md file:border file:px-3 file:py-1.5 file:text-sm file:font-medium",
@@ -240,23 +474,18 @@ export function VehicleImport() {
           <p className="text-muted-foreground text-xs leading-relaxed">
             {!file
               ? "Bitte zuerst die CSV auswählen."
-              : pdfFile
-                ? `„${pdfFile.name}“ wird mit der CSV zusammengeführt. Was die PDF ergänzt, sehen Sie unten – nichts davon wird ohne Ihre Prüfung übernommen.`
+              : pdf
+                ? `„${pdf.kind === "blob" ? pdf.ref.name : pdf.file.name}“ wird mit der CSV zusammengeführt. Was die PDF ergänzt, sehen Sie unten – nichts davon wird ohne Ihre Prüfung übernommen.`
                 : "Ohne PDF läuft der Import wie bisher, nur mit der CSV."}
           </p>
-          {pdfFile && (
+          {pdf && (
             <Button type="button" variant="ghost" size="sm" disabled={busy} onClick={clearPdf}>
               PDF entfernen
             </Button>
           )}
         </div>
 
-        {state.step === "loading" && (
-          <p className="text-muted-foreground mt-4 flex items-center gap-2 text-sm">
-            <Loader2 className="size-4 animate-spin" aria-hidden="true" />
-            Dateien werden gelesen …
-          </p>
-        )}
+        {state.step === "loading" && <ProgressNotice phase={state.phase} />}
       </AdminCard>
 
       {(state.step === "preview" || state.step === "importing") && (
@@ -276,6 +505,7 @@ export function VehicleImport() {
           <ConfirmStep
             data={state.data}
             busy={state.step === "importing"}
+            phase={state.step === "importing" ? state.phase : null}
             enrichmentWork={enrichmentWork}
             onImport={() => void handleImport()}
           />
@@ -288,17 +518,69 @@ export function VehicleImport() {
 }
 
 // ---------------------------------------------------------------------------
+// Fortschritt
+// ---------------------------------------------------------------------------
+
+/**
+ * Was gerade passiert – in Worten, die der Händler versteht.
+ *
+ * Beim Hochladen stehen echte Zahlen dabei. Danach arbeitet der Server:
+ * Fahrzeuge erkennen, zuordnen, Vorschau vorbereiten. Das dauert lokal
+ * gemessen unter einer Zehntelsekunde und wird deshalb als ein Schritt
+ * gezeigt; drei nacheinander aufleuchtende Zeilen wären Theater. Dauert es
+ * dennoch, sagt ein Hinweis nach 15 Sekunden, dass noch gearbeitet wird.
+ */
+function ProgressNotice({ phase }: { phase: Phase }) {
+  const [slow, setSlow] = useState(false);
+
+  useEffect(() => {
+    const timer = setTimeout(() => setSlow(true), SLOW_HINT_AFTER_MS);
+    return () => clearTimeout(timer);
+  }, []);
+
+  let text: string;
+  if (phase.kind === "uploading") {
+    const what = phase.what === "pdf" ? "Fahrzeugliste wird hochgeladen" : "CSV wird hochgeladen";
+    text =
+      phase.total > 0
+        ? `${what} … ${formatMegabytes(phase.sent)} von ${formatMegabytes(phase.total)}`
+        : `${what} …`;
+  } else {
+    text = phase.withPdf
+      ? "Fahrzeugliste wird analysiert – Fahrzeuge erkennen, zuordnen, Vorschau vorbereiten …"
+      : "CSV wird gelesen und mit dem Bestand abgeglichen …";
+  }
+
+  return (
+    <div className="mt-4 space-y-1.5" role="status" aria-live="polite">
+      <p className="text-muted-foreground flex items-center gap-2 text-sm">
+        <Loader2 className="size-4 animate-spin" aria-hidden="true" />
+        {text}
+      </p>
+      {slow && (
+        <p className="text-muted-foreground text-xs leading-relaxed">
+          Die Fahrzeugliste wird noch verarbeitet. Bei größeren PDFs kann dies
+          einen Moment dauern.
+        </p>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Schritt 4: Bestätigen
 // ---------------------------------------------------------------------------
 
 function ConfirmStep({
   data,
   busy,
+  phase,
   enrichmentWork,
   onImport,
 }: {
   data: ImportPreviewResponse;
   busy: boolean;
+  phase: Phase | null;
   enrichmentWork: boolean;
   onImport: () => void;
 }) {
@@ -335,6 +617,8 @@ function ConfirmStep({
           Bis hierher wurde nichts gespeichert.
         </p>
       </div>
+
+      {phase && <ProgressNotice phase={phase} />}
     </AdminCard>
   );
 }

@@ -215,6 +215,27 @@ Erlaubt sind JPEG, PNG und WebP bis insgesamt 4 MB je Upload, höchstens 30
 Bilder je Fahrzeug. Die 4-MB-Grenze lässt Reserve unter dem 4,5-MB-Body-Limit
 von Vercel Functions. Das erste Bild ist das Titelbild.
 
+#### Fahrzeuglisten-PDF: direkt nach Blob
+
+Die Fahrzeugliste aus willhaben (`Unser Fahrzeugbestand vom …`) liegt mit
+ihren Fotos über dem 4,5-MB-Limit. Der Browser lädt sie deshalb **direkt** in
+den Blob-Store (`@vercel/blob/client`, Token-Route
+`/api/admin/vehicles/import/upload`) und gibt dem Import nur den Pfad. Grenze:
+25 MB. Regeln in `src/integrations/storage/temp-imports.ts`:
+
+- Pfad immer `temp/vehicle-imports/<uuid>-<suffix>.pdf`; nur dieses Muster
+  wird angenommen, der Server ruft nie eine vom Client gelieferte URL ab.
+- Gelesen wird über das SDK mit dem eigenen Token – ein fremder Store ist
+  damit unerreichbar.
+- Der Store ist öffentlich (Instagram braucht das für die Bilder); die PDF
+  liegt deshalb unter einem nicht erratbaren Pfad, nur für die Dauer eines
+  Imports, und wird nach erfolgreichem Bestätigen gelöscht.
+- Liegengebliebene Dateien (Browser geschlossen) räumt jede Vorschau nebenbei
+  weg, sobald sie älter als ein Tag sind – ohne Cron, ohne Datenbank.
+
+Ohne `BLOB_READ_WRITE_TOKEN` (lokal) geht die PDF den alten Weg im Request;
+dort gilt dann die 4-MB-Grenze.
+
 ### Konventionen
 
 - **Geld** liegt als ganzzahlige **Cent**-Werte vor (`priceCents`).

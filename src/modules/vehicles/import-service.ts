@@ -8,6 +8,7 @@ import { prisma } from "@/lib/prisma";
 import { UserFacingError } from "@/lib/result";
 
 import { decodeCsv, parseVehicleCsv, type ParsedCsv } from "./csv-import";
+import { MAX_LIST_PDF_BYTES } from "./import-dto";
 import { mergeEquipment } from "./equipment";
 import {
   planEnrichment,
@@ -24,18 +25,15 @@ import {
   type PlannedCreate,
 } from "./import-plan";
 import {
-  extractImages,
+  decodeImage,
+  extractImageMetadata,
   isEncrypted,
   looksLikePdf,
   parsePdfObjects,
   type PdfObject,
 } from "./price-sheet";
 import { buildVehicleSlug, buildVehicleTitle } from "./slug";
-import {
-  isVehicleListPdf,
-  parseVehicleListObjects,
-  type VehicleListPdf,
-} from "./vehicle-list-pdf";
+import { parseVehicleListObjects, type VehicleListPdf } from "./vehicle-list-pdf";
 
 /**
  * Ausführung des CSV-Bestandsimports.
@@ -54,8 +52,20 @@ import {
  * (import-enrichment.ts).
  */
 
-/** Fahrzeuglisten-PDFs sind bildlastig; 25 MB decken drei Seiten mit Fotos. */
-export const MAX_LIST_PDF_BYTES = 25 * 1024 * 1024;
+/** Messwerte einer Vorschau, nur Dauern in Millisekunden – nie Inhalte. */
+export type ImportTimings = {
+  csvReadMs: number;
+  csvParseMs: number;
+  loadExistingMs: number;
+  csvPlanMs: number;
+  pdfReadMs: number;
+  pdfObjectsMs: number;
+  pdfCardsMs: number;
+  matchingMs: number;
+  totalMs: number;
+};
+
+const now = () => performance.now();
 
 /** 2 MB reichen für mehrere tausend Zeilen und begrenzen den Speicherbedarf. */
 export const MAX_CSV_BYTES = 2 * 1024 * 1024;
@@ -95,6 +105,8 @@ export type ImportPreview = {
     objects: Map<number, PdfObject>;
     warnings: string[];
   } | null;
+  /** Für das Serverlog – wo die Zeit hingeht. */
+  timings: ImportTimings;
 };
 
 export type ImportOutcome = {
@@ -164,12 +176,41 @@ export async function readCsvFile(
 }
 
 /** Einlesen und planen, ohne zu schreiben. */
+/**
+ * Woher die Fahrzeuglisten-PDF kommt.
+ *
+ * In Produktion liegt sie bereits im Blob-Store (direkter Upload vom
+ * Browser); die Anwendung erhält nur den Pfad. Lokal ohne Blob-Token kommt
+ * sie weiterhin als Datei im Request – dann gilt das Function-Limit.
+ */
+export type ListPdfSource =
+  | { kind: "file"; file: File }
+  | { kind: "blob"; pathname: string; name: string; bytes: Buffer };
+
 export async function buildImportPreview(
   file: File,
-  listPdf: File | null = null,
+  listPdf: ListPdfSource | null = null,
 ): Promise<ImportPreview> {
+  const started = now();
+  const timings: ImportTimings = {
+    csvReadMs: 0,
+    csvParseMs: 0,
+    loadExistingMs: 0,
+    csvPlanMs: 0,
+    pdfReadMs: 0,
+    pdfObjectsMs: 0,
+    pdfCardsMs: 0,
+    matchingMs: 0,
+    totalMs: 0,
+  };
+
+  let t = now();
   const { fileName, text } = await readCsvFile(file);
+  timings.csvReadMs = now() - t;
+
+  t = now();
   const parsed = parseVehicleCsv(text);
+  timings.csvParseMs = now() - t;
 
   if (parsed.totalDataRows > MAX_CSV_ROWS) {
     throw new UserFacingError(
@@ -180,14 +221,20 @@ export async function buildImportPreview(
     );
   }
 
+  t = now();
   const existing = await loadExistingVehicles();
+  timings.loadExistingMs = now() - t;
+
+  t = now();
   const plan = planVehicleImport({ rows: parsed.rows, existing });
+  timings.csvPlanMs = now() - t;
 
   const enrichment = listPdf
-    ? await buildEnrichmentPreview(listPdf, plan, existing)
+    ? await buildEnrichmentPreview(listPdf, plan, existing, timings)
     : null;
 
-  return { fileName, parsed, plan, enrichment };
+  timings.totalMs = now() - started;
+  return { fileName, parsed, plan, enrichment, timings };
 }
 
 // ---------------------------------------------------------------------------
@@ -272,19 +319,34 @@ function enrichmentTargets(plan: ImportPlan, existing: ExistingVehicle[]): Enric
 }
 
 async function buildEnrichmentPreview(
-  file: File,
+  source: ListPdfSource,
   plan: ImportPlan,
   existing: ExistingVehicle[],
+  timings: ImportTimings,
 ): Promise<NonNullable<ImportPreview["enrichment"]>> {
-  if (file.size > MAX_LIST_PDF_BYTES) {
-    throw new UserFacingError(
-      "Die Fahrzeuglisten-PDF ist größer als 25 MB. Bitte prüfen Sie, ob die " +
-        "richtige Datei ausgewählt ist.",
-      "VALIDATION",
-    );
-  }
+  let t = now();
+  let bytes: Buffer;
+  let fileName: string;
 
-  const bytes = Buffer.from(await file.arrayBuffer());
+  if (source.kind === "file") {
+    // Nur der Rückfall ohne Blob-Store: Hier greift das 4,5-MB-Limit der
+    // Function, deshalb die knappe Grenze.
+    if (source.file.size > MAX_LIST_PDF_BYTES) {
+      throw new UserFacingError(
+        `Die Fahrzeuglisten-PDF ist ${(source.file.size / 1024 / 1024).toFixed(1)} MB groß; ` +
+          `ohne Blob-Speicher können höchstens ${MAX_LIST_PDF_BYTES / 1024 / 1024} MB ` +
+          "im Request übertragen werden.",
+        "VALIDATION",
+      );
+    }
+    bytes = Buffer.from(await source.file.arrayBuffer());
+    fileName = source.file.name;
+  } else {
+    bytes = source.bytes;
+    fileName = source.name;
+  }
+  timings.pdfReadMs = now() - t;
+
   if (!looksLikePdf(bytes)) {
     throw new UserFacingError("Die zweite Datei ist keine PDF-Datei.", "VALIDATION");
   }
@@ -295,8 +357,17 @@ async function buildEnrichmentPreview(
     );
   }
 
+  t = now();
   const objects = parsePdfObjects(bytes);
-  if (!isVehicleListPdf(objects)) {
+  timings.pdfObjectsMs = now() - t;
+
+  // Ein Durchlauf liest Überschrift, Karten und Fotopositionen zugleich;
+  // die Erkennung fällt dabei mit ab. Bilddaten werden hier nicht angefasst.
+  t = now();
+  const list = parseVehicleListObjects(objects);
+  timings.pdfCardsMs = now() - t;
+
+  if (!list.recognized) {
     throw new UserFacingError(
       "Die PDF ist keine Fahrzeugliste („Unser Fahrzeugbestand vom …“). Ein " +
         "einzelnes Preisblatt laden Sie bitte direkt beim jeweiligen Fahrzeug hoch.",
@@ -304,11 +375,12 @@ async function buildEnrichmentPreview(
     );
   }
 
-  const list = parseVehicleListObjects(objects);
+  t = now();
   const enrichmentPlan = planEnrichment(list.cards, enrichmentTargets(plan, existing));
+  timings.matchingMs = now() - t;
 
   return {
-    fileName: file.name,
+    fileName,
     list,
     plan: enrichmentPlan,
     objects,
@@ -543,8 +615,11 @@ async function applyEnrichment(
   let imagesStored = 0;
 
   const resolved = resolveEnrichmentDecisions(enrichment.plan, decisions);
-  const photos = resolved.some((entry) => entry.useImage)
-    ? new Map(extractImages(enrichment.objects).map((image) => [image.objectNumber, image]))
+
+  // Metadaten einmal, Bilddaten nur für bestätigte Fotos – und je Foto genau
+  // einmal. Ohne bestätigtes Foto wird die PDF gar nicht nach Bildern durchsucht.
+  const metadata = resolved.some((entry) => entry.useImage)
+    ? new Map(extractImageMetadata(enrichment.objects).map((meta) => [meta.objectNumber, meta]))
     : new Map();
 
   for (const entry of resolved) {
@@ -573,7 +648,10 @@ async function applyEnrichment(
       }
 
       if (entry.useImage && entry.card.image) {
-        const photo = photos.get(entry.card.image.objectNumber);
+        // Erst jetzt, und nur dieses eine Bild: Die Bytes des bestätigten
+        // Fotos werden aus der PDF gelesen – alle anderen bleiben unberührt.
+        const meta = metadata.get(entry.card.image.objectNumber);
+        const photo = meta ? decodeImage(enrichment.objects, meta) : null;
         if (!photo) {
           failures.push(`${label}: Das Foto wurde in der PDF nicht mehr gefunden.`);
         } else {

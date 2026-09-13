@@ -329,8 +329,23 @@ describe("Foto und Weitergabe", () => {
 
   it("liest das Foto genau der Karte, nicht das größte der Datei", () => {
     const block = service.slice(service.indexOf("async function applyEnrichment"));
-    assert.match(block, /photos\.get\(entry\.card\.image\.objectNumber\)/);
+    assert.match(block, /metadata\.get\(entry\.card\.image\.objectNumber\)/);
+    assert.match(block, /decodeImage\(enrichment\.objects, meta\)/);
     assert.ok(!/rankVehicleImages/.test(block));
+  });
+
+  it("dekodiert Bilder erst beim Bestätigen, und nur bestätigte", () => {
+    // Die Vorschau kennt nur Metadaten; Bytes werden je bestätigtem Foto
+    // einzeln gelesen. Ohne bestätigtes Foto wird gar nicht gesucht.
+    const preview = service.slice(
+      service.indexOf("async function buildEnrichmentPreview"),
+      service.indexOf("async function applyEnrichment"),
+    );
+    assert.ok(!/extractImages|decodeImage|extractImageMetadata/.test(preview));
+
+    const commit = service.slice(service.indexOf("async function applyEnrichment"));
+    assert.match(commit, /resolved\.some\(\(entry\) => entry\.useImage\)/);
+    assert.ok(!/extractImages\(/.test(commit), "nie alle Bilder auf einmal");
   });
 
   it("schreibt nur tatsächliche Werte und bleibt bei der CSV als Bestand", () => {

@@ -518,14 +518,27 @@ function xObjectNames(objects: Map<number, PdfObject>): Map<number, string> {
   return names;
 }
 
+/** Ein Bild, wie es sich ohne Dekodierung beschreiben lässt. */
+export type PdfImageMeta = Omit<PdfImage, "data"> & {
+  /** Wie die Bilddaten beim Dekodieren zu behandeln sind. */
+  decode:
+    | { kind: "jpeg" }
+    | { kind: "flate"; channels: 1 | 3; alreadyFiltered: boolean };
+};
+
 /**
- * Alle eingebetteten Rasterbilder mit ihrer Zeichengröße.
+ * Alle eingebetteten Rasterbilder – nur die Metadaten, keine Bilddaten.
+ *
+ * Getrennt von der Dekodierung, weil die Vorschau die Bytes nicht braucht:
+ * Sie muss nur wissen, welches Bild wo liegt. Erst beim Bestätigen werden
+ * die gewünschten Bilder einzeln dekodiert (siehe `decodeImage`). Für eine
+ * Fahrzeugliste mit 32 Fotos spart das rund 5 MB Kopien je Vorschau.
  *
  * Sanftmasken (/SMask) werden nicht als eigene Bilder ausgegeben – sie sind
  * der Alphakanal eines anderen Bildes und ergäben sonst ein zweites,
  * sinnloses Graustufenbild in der Auswahl.
  */
-export function extractImages(objects: Map<number, PdfObject>): PdfImage[] {
+export function extractImageMetadata(objects: Map<number, PdfObject>): PdfImageMeta[] {
   const sizes = drawnSizes(objects);
   const names = xObjectNames(objects);
   const pageWidth = pageWidthPt(objects);
@@ -536,7 +549,7 @@ export function extractImages(objects: Map<number, PdfObject>): PdfImage[] {
     if (match) maskNumbers.add(Number(match[1]));
   }
 
-  const images: PdfImage[] = [];
+  const images: PdfImageMeta[] = [];
 
   for (const object of objects.values()) {
     const text = object.dict.toString("latin1");
@@ -550,12 +563,12 @@ export function extractImages(objects: Map<number, PdfObject>): PdfImage[] {
     const colorSpace = nameValue(object.dict, "ColorSpace");
     const bits = numberValue(object.dict, "BitsPerComponent") ?? 8;
 
-    let data: Buffer | null = null;
+    let decode: PdfImageMeta["decode"] | null = null;
     let contentType: PdfImage["contentType"] = "image/png";
 
     if (object.filter === "DCTDecode" && object.rawStream) {
-      // Der Stream IST bereits eine JPEG-Datei – unverändert übernehmen.
-      data = Buffer.from(object.rawStream);
+      // Der Stream IST bereits eine JPEG-Datei – wird später unverändert übernommen.
+      decode = { kind: "jpeg" };
       contentType = "image/jpeg";
     } else if (object.filter === "FlateDecode" && object.stream && bits === 8) {
       const channels = colorSpace === "DeviceRGB" ? 3 : colorSpace === "DeviceGray" ? 1 : null;
@@ -569,16 +582,14 @@ export function extractImages(objects: Map<number, PdfObject>): PdfImage[] {
         : widthPx * heightPx * (channels ?? 1);
 
       if (channels && object.stream.length >= needed) {
-        data = encodePng(object.stream, widthPx, heightPx, channels, {
-          alreadyFiltered,
-        });
+        decode = { kind: "flate", channels, alreadyFiltered };
       }
     }
 
     // Alles andere (CMYK, indizierte Paletten, JPEG2000, CCITT) wird bewusst
     // übersprungen statt halbrichtig umgerechnet: Ein farbverfälschtes
     // Fahrzeugbild wäre schlimmer als gar keins.
-    if (!data) continue;
+    if (!decode) continue;
 
     const name = names.get(object.number);
     const drawn = name ? sizes.get(name) : undefined;
@@ -592,11 +603,53 @@ export function extractImages(objects: Map<number, PdfObject>): PdfImage[] {
       pageWidthRatio: drawn && pageWidth ? drawn.width / pageWidth : null,
       hasAlpha: /\/SMask\s+\d+\s+\d+\s+R/.test(text),
       contentType,
-      data,
+      decode,
     });
   }
 
   return images;
+}
+
+/** Bilddaten eines einzelnen Bildes – erst hier wird kopiert bzw. kodiert. */
+export function decodeImage(
+  objects: Map<number, PdfObject>,
+  meta: PdfImageMeta,
+): PdfImage | null {
+  const object = objects.get(meta.objectNumber);
+  if (!object) return null;
+
+  let data: Buffer | null = null;
+  if (meta.decode.kind === "jpeg" && object.rawStream) {
+    data = Buffer.from(object.rawStream);
+  } else if (meta.decode.kind === "flate" && object.stream) {
+    data = encodePng(object.stream, meta.widthPx, meta.heightPx, meta.decode.channels, {
+      alreadyFiltered: meta.decode.alreadyFiltered,
+    });
+  }
+  if (!data) return null;
+
+  const { decode: _decode, ...rest } = meta;
+  void _decode;
+  return { ...rest, data };
+}
+
+/** Ein bestimmtes Bild anhand seiner Objektnummer – für das Bestätigen. */
+export function extractImage(
+  objects: Map<number, PdfObject>,
+  objectNumber: number,
+): PdfImage | null {
+  const meta = extractImageMetadata(objects).find((m) => m.objectNumber === objectNumber);
+  return meta ? decodeImage(objects, meta) : null;
+}
+
+/**
+ * Alle eingebetteten Rasterbilder samt Daten – für das Preisblatt, das
+ * ohnehin nur ein oder zwei Bilder enthält.
+ */
+export function extractImages(objects: Map<number, PdfObject>): PdfImage[] {
+  return extractImageMetadata(objects)
+    .map((meta) => decodeImage(objects, meta))
+    .filter((image): image is PdfImage => image !== null);
 }
 
 // ---------------------------------------------------------------------------

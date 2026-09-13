@@ -5,6 +5,35 @@ import type {
 } from "./import-enrichment";
 
 /**
+ * Obergrenze der Fahrzeuglisten-PDF – gilt für Client und Server gleich.
+ *
+ * Vercel nimmt je Anfrage höchstens 4,5 MB Body an und antwortet darüber mit
+ * 413, bevor eine Zeile Code läuft. CSV und Multipart-Rahmen brauchen etwas
+ * Platz; 4 MB für die PDF lassen dafür Reserve. Der Client prüft das vor dem
+ * Hochladen – eine Ablehnung nach dem Upload wäre nur verlorene Zeit.
+ */
+export const MAX_LIST_PDF_BYTES = 4 * 1024 * 1024;
+
+/** Alles zusammen muss unter dem Body-Limit der Plattform bleiben. */
+export const MAX_IMPORT_REQUEST_BYTES = 4.5 * 1024 * 1024 - 64 * 1024;
+
+/**
+ * Fachliche Obergrenze der Fahrzeugliste beim direkten Upload nach Vercel
+ * Blob. Dort gilt das Function-Limit nicht; 25 MB decken auch Listen mit
+ * deutlich mehr Fahrzeugen und Fotos.
+ */
+export const MAX_LIST_PDF_DIRECT_BYTES = 25 * 1024 * 1024;
+
+/** Referenz auf eine bereits direkt hochgeladene Fahrzeugliste. */
+export type ListPdfReference = {
+  /** Pfad im Blob-Store, z. B. "temp/vehicle-imports/<uuid>-<suffix>.pdf". */
+  pathname: string;
+  /** Ursprünglicher Dateiname – nur zur Anzeige. */
+  name: string;
+  size: number;
+};
+
+/**
  * Was die Importseite vom Server zurückbekommt.
  *
  * Bewusst ein eigenes, flaches Format statt der internen Plan-Typen: Es geht

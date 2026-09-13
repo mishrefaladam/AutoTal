@@ -2,10 +2,10 @@ import type { DrivetrainType } from "@/generated/prisma/enums";
 
 import { parseEuroToCents, parseGermanInteger } from "./csv-import";
 import {
-  extractImages,
+  extractImageMetadata,
   pageWidthPt,
   parsePdfObjects,
-  type PdfImage,
+  type PdfImageMeta,
   type PdfObject,
 } from "./price-sheet";
 
@@ -78,6 +78,8 @@ export type VehicleListPdf = {
   pages: number;
   /** Datum aus der Überschrift, falls lesbar (nur zur Anzeige). */
   listedAt: string | null;
+  /** Erste Seite trägt Überschrift und Kartenaufbau der Fahrzeugliste. */
+  recognized: boolean;
   warnings: string[];
 };
 
@@ -175,22 +177,37 @@ function dictRefs(dict: string, key: string): Map<string, number> {
   return refs;
 }
 
+type FontMap = { map: Map<number, string>; bold: boolean };
+
+/**
+ * Schriften einer Seite mit ihrer Zeichentabelle.
+ *
+ * `cache` hält die Tabelle je Font-Objekt über alle Seiten hinweg: Dieselben
+ * zwei Schriften stehen auf jeder Seite, ihre CMap wird trotzdem nur einmal
+ * gelesen.
+ */
 function fontMaps(
   pageDict: string,
   objects: Map<number, PdfObject>,
-): Map<string, { map: Map<number, string>; bold: boolean }> {
-  const fonts = new Map<string, { map: Map<number, string>; bold: boolean }>();
+  cache: Map<number, FontMap>,
+): Map<string, FontMap> {
+  const fonts = new Map<string, FontMap>();
 
   for (const [name, number] of dictRefs(pageDict, "Font")) {
-    const font = objects.get(number);
-    if (!font) continue;
-    const dict = font.dict.toString("latin1");
-    const toUnicode = /\/ToUnicode\s+(\d+)\s+0\s+R/.exec(dict)?.[1];
-    const stream = toUnicode ? objects.get(Number(toUnicode))?.stream : null;
-    fonts.set(name, {
-      map: stream ? parseToUnicodeCMap(stream.toString("latin1")) : new Map(),
-      bold: /Bold/i.test(dict),
-    });
+    let entry = cache.get(number);
+    if (!entry) {
+      const font = objects.get(number);
+      if (!font) continue;
+      const dict = font.dict.toString("latin1");
+      const toUnicode = /\/ToUnicode\s+(\d+)\s+0\s+R/.exec(dict)?.[1];
+      const stream = toUnicode ? objects.get(Number(toUnicode))?.stream : null;
+      entry = {
+        map: stream ? parseToUnicodeCMap(stream.toString("latin1")) : new Map(),
+        bold: /Bold/i.test(dict),
+      };
+      cache.set(number, entry);
+    }
+    fonts.set(name, entry);
   }
 
   return fonts;
@@ -203,6 +220,7 @@ function fontMaps(
 function walkPage(
   page: PdfObject,
   objects: Map<number, PdfObject>,
+  fontCache: Map<number, FontMap> = new Map(),
 ): { runs: PlacedRun[]; images: PlacedImage[] } {
   const dict = page.dict.toString("latin1");
   const runs: PlacedRun[] = [];
@@ -219,13 +237,13 @@ function walkPage(
     .join("\n");
   if (!source) return { runs, images };
 
-  const fonts = fontMaps(dict, objects);
+  const fonts = fontMaps(dict, objects, fontCache);
   const xObjects = dictRefs(dict, "XObject");
 
   let ctm: Matrix = IDENTITY;
   const stack: Matrix[] = [];
   let textMatrix: Matrix = IDENTITY;
-  let font: { map: Map<number, string>; bold: boolean } | null = null;
+  let font: FontMap | null = null;
   const operands: string[] = [];
 
   const numbers = () => operands.map(Number);
@@ -363,7 +381,7 @@ function buildCards(
   page: number,
   runs: PlacedRun[],
   images: PlacedImage[],
-  imagesByObject: Map<number, PdfImage>,
+  imagesByObject: Map<number, PdfImageMeta>,
 ): VehicleListCard[] {
   const anchors = images
     .filter((image) => imagesByObject.has(image.objectNumber))
@@ -425,7 +443,7 @@ function cardFromRuns(
   page: number,
   index: number,
   bucket: { anchor: PlacedImage; runs: PlacedRun[] },
-  imagesByObject: Map<number, PdfImage>,
+  imagesByObject: Map<number, PdfImageMeta>,
 ): VehicleListCard {
   const warnings: string[] = [];
   const runs = [...bucket.runs].sort((a, b) => b.y - a.y || a.x - b.x);
@@ -534,9 +552,14 @@ function pageObjects(objects: Map<number, PdfObject>): PdfObject[] {
  */
 const MIN_PHOTO_PX = 120;
 
-function vehiclePhotos(objects: Map<number, PdfObject>): Map<number, PdfImage> {
-  const photos = new Map<number, PdfImage>();
-  for (const image of extractImages(objects)) {
+/**
+ * Nur Metadaten: Welche Objekte sind Fotos? Die Bilddaten selbst werden hier
+ * nicht angefasst – die Vorschau braucht sie nicht, und beim Bestätigen
+ * werden nur die gewünschten einzeln gelesen.
+ */
+function vehiclePhotos(objects: Map<number, PdfObject>): Map<number, PdfImageMeta> {
+  const photos = new Map<number, PdfImageMeta>();
+  for (const image of extractImageMetadata(objects)) {
     if (image.hasAlpha) continue;
     if (image.widthPx < MIN_PHOTO_PX || image.heightPx < MIN_PHOTO_PX) continue;
     photos.set(image.objectNumber, image);
@@ -544,13 +567,22 @@ function vehiclePhotos(objects: Map<number, PdfObject>): Map<number, PdfImage> {
   return photos;
 }
 
-/** Erkennt die Liste an ihrer Überschrift und dem Kartenaufbau. */
+function looksLikeListHeading(runs: PlacedRun[]): boolean {
+  const text = runs.map((run) => run.text).join(" ");
+  return /Unser Fahrzeugbestand/i.test(text) && /Baujahr/.test(text) && /Antrieb/.test(text);
+}
+
+/**
+ * Erkennt die Liste an ihrer Überschrift und dem Kartenaufbau.
+ *
+ * Läuft nur die erste Seite. Wer die Datei ohnehin vollständig liest, nimmt
+ * stattdessen `recognized` aus `parseVehicleListObjects` – das spart den
+ * zweiten Durchlauf.
+ */
 export function isVehicleListPdf(objects: Map<number, PdfObject>): boolean {
   const pages = pageObjects(objects);
   if (pages.length === 0) return false;
-  const { runs } = walkPage(pages[0], objects);
-  const text = runs.map((run) => run.text).join(" ");
-  return /Unser Fahrzeugbestand/i.test(text) && /Baujahr/.test(text) && /Antrieb/.test(text);
+  return looksLikeListHeading(walkPage(pages[0], objects).runs);
 }
 
 export function parseVehicleListPdf(bytes: Buffer): VehicleListPdf {
@@ -562,16 +594,19 @@ export function parseVehicleListObjects(objects: Map<number, PdfObject>): Vehicl
   const warnings: string[] = [];
   const pages = pageObjects(objects);
   const photos = vehiclePhotos(objects);
+  const fontCache = new Map<number, FontMap>();
   const cards: VehicleListCard[] = [];
   let listedAt: string | null = null;
+  let recognized = false;
 
   if (pageWidthPt(objects) === null) {
     warnings.push("Seitengröße nicht lesbar – Positionen können abweichen.");
   }
 
   pages.forEach((page, pageIndex) => {
-    const { runs, images } = walkPage(page, objects);
+    const { runs, images } = walkPage(page, objects, fontCache);
 
+    if (pageIndex === 0) recognized = looksLikeListHeading(runs);
     if (listedAt === null) {
       const heading = runs.find((run) => /Fahrzeugbestand vom/i.test(run.text));
       listedAt = heading?.text.match(/(\d{2}\.\d{2}\.\d{4})/)?.[1] ?? null;
@@ -584,5 +619,5 @@ export function parseVehicleListObjects(objects: Map<number, PdfObject>): Vehicl
     warnings.push("Keine Fahrzeugkarten erkannt.");
   }
 
-  return { cards, pages: pages.length, listedAt, warnings };
+  return { cards, pages: pages.length, listedAt, recognized, warnings };
 }

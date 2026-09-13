@@ -3,6 +3,12 @@ import { revalidatePath } from "next/cache";
 
 import { z } from "zod";
 
+import {
+  cleanupStaleTempImports,
+  deleteTempImport,
+  isTempImportPathname,
+  readTempImport,
+} from "@/integrations/storage/temp-imports";
 import { logger } from "@/lib/logger";
 import { formatEuro, formatKilometers, formatNumber } from "@/lib/money";
 import { UserFacingError } from "@/lib/result";
@@ -31,6 +37,7 @@ import {
   applyImportPlan,
   buildImportPreview,
   type ImportPreview,
+  type ListPdfSource,
 } from "@/modules/vehicles/import-service";
 import { DRIVETRAIN_LABELS, formatMonthYear } from "@/modules/vehicles/labels";
 import type { VehicleListCard } from "@/modules/vehicles/vehicle-list-pdf";
@@ -47,10 +54,14 @@ import type { VehicleListCard } from "@/modules/vehicles/vehicle-list-pdf";
  * trotzdem – ein Endpunkt, der Fahrzeuge anlegt, verlässt sich nicht auf eine
  * vorgelagerte Schicht.
  *
- * Optional kommt eine Fahrzeuglisten-PDF mit (`pdf`). Beim Bestätigen werden
- * beide Dateien erneut gelesen und die Entscheidungen des Reviews
- * (`decisions`, JSON) auf den neu berechneten Plan angewandt – so kann die
- * Vorschau nicht von dem abweichen, was geschrieben wird.
+ * Optional kommt eine Fahrzeuglisten-PDF mit – in Produktion als Pfad einer
+ * bereits direkt nach Vercel Blob hochgeladenen Datei (`pdfRef`), lokal ohne
+ * Blob-Token als Datei im Request (`pdf`). Beim Bestätigen wird dieselbe
+ * Blob-Datei erneut gelesen – kein zweiter Upload – und die Entscheidungen
+ * des Reviews (`decisions`, JSON) werden auf den neu berechneten Plan
+ * angewandt, so dass die Vorschau nicht von dem abweichen kann, was
+ * geschrieben wird. Nach erfolgreichem Bestätigen wird die temporäre PDF
+ * gelöscht; scheitert das Schreiben, bleibt sie für einen erneuten Versuch.
  */
 
 export const runtime = "nodejs";
@@ -280,6 +291,7 @@ function toPreviewResponse(preview: ImportPreview): ImportPreviewResponse {
 }
 
 export async function POST(request: NextRequest) {
+  const requestStarted = performance.now();
   const session = await getAdminSession();
 
   if (!session) {
@@ -298,15 +310,46 @@ export async function POST(request: NextRequest) {
 
   const file = formData.get("file");
   const pdfEntry = formData.get("pdf");
-  const pdf = pdfEntry instanceof File && pdfEntry.size > 0 ? pdfEntry : null;
+  const pdfRef = formData.get("pdfRef");
   const mode = formData.get("mode") === "commit" ? "commit" : "preview";
 
   if (!(file instanceof File)) {
     return NextResponse.json({ error: "Keine Datei erhalten." }, { status: 400 });
   }
 
+  // Ein Pfad muss exakt dem Muster der Anwendung entsprechen – alles andere
+  // wird abgewiesen, ohne dass irgendetwas aufgerufen wird.
+  if (pdfRef !== null && !isTempImportPathname(pdfRef)) {
+    return NextResponse.json({ error: "Ungültige Referenz der Fahrzeugliste." }, { status: 400 });
+  }
+
   try {
+    let pdf: ListPdfSource | null = null;
+    if (isTempImportPathname(pdfRef)) {
+      const temp = await readTempImport(pdfRef);
+      pdf = { kind: "blob", pathname: temp.pathname, name: "Fahrzeugliste.pdf", bytes: temp.bytes };
+    } else if (pdfEntry instanceof File && pdfEntry.size > 0) {
+      pdf = { kind: "file", file: pdfEntry };
+    }
+
+    // Liegengebliebene Uploads nebenbei wegräumen – ohne darauf zu warten.
+    if (mode === "preview" && pdf?.kind === "blob") {
+      void cleanupStaleTempImports();
+    }
+
     const preview = await buildImportPreview(file, pdf);
+
+    // Nur Dauern und Größen – keine Dateiinhalte, keine Fahrzeugdaten. Damit
+    // lässt sich im Vercel-Log ablesen, wo die Zeit einer Vorschau hingeht.
+    logger.info("Bestandsvorschau erstellt", {
+      mode,
+      csvBytes: file.size,
+      pdfBytes: pdf?.kind === "blob" ? pdf.bytes.length : (pdf?.file.size ?? 0),
+      pdfSource: pdf?.kind ?? null,
+      cards: preview.enrichment?.list.cards.length ?? 0,
+      ...preview.timings,
+      requestMs: Math.round(performance.now() - requestStarted),
+    });
 
     if (mode === "preview") {
       return NextResponse.json(toPreviewResponse(preview));
@@ -328,6 +371,13 @@ export async function POST(request: NextRequest) {
 
     revalidatePath("/admin/fahrzeuge");
     revalidatePath("/admin/social-media");
+
+    // Erst nach erfolgreichem Schreiben: Die temporäre PDF hat ihren Zweck
+    // erfüllt. Bei Fehlern bleibt sie liegen, damit ein erneuter Versuch
+    // ohne neuen Upload möglich ist.
+    if (pdf?.kind === "blob" && failures.length === 0) {
+      await deleteTempImport(pdf.pathname);
+    }
 
     const response: ImportCommitResponse = {
       mode: "commit",

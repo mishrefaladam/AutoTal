@@ -159,9 +159,9 @@ describe("Bestehende Flows", () => {
   const importUi = readFileSync("src/components/admin/vehicle-import.tsx", "utf8");
 
   it("läuft der CSV-Import ohne PDF wie bisher", () => {
-    assert.match(service, /listPdf: File \| null = null/);
+    assert.match(service, /listPdf: ListPdfSource \| null = null/);
     assert.match(service, /const enrichment = listPdf\s*\?/);
-    assert.match(importRoute, /pdfEntry instanceof File && pdfEntry\.size > 0 \? pdfEntry : null/);
+    assert.match(importRoute, /pdfEntry instanceof File && pdfEntry\.size > 0/);
     assert.match(importUi, /Ohne PDF läuft der Import wie bisher/);
   });
 
@@ -191,5 +191,75 @@ describe("Bestehende Flows", () => {
     assert.match(schema, /powerKw\s+Int\?/);
     assert.match(schema, /displacementCcm\s+Int\?/);
     assert.match(schema, /drivetrain\s+DrivetrainType\?/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Vorschau: Größe, Fortschritt, Fehlerpfad
+// ---------------------------------------------------------------------------
+
+describe("Import-Vorschau: Upload und Wartezeit", () => {
+  const importUi = readFileSync("src/components/admin/vehicle-import.tsx", "utf8");
+  const dto = readFileSync("src/modules/vehicles/import-dto.ts", "utf8");
+
+  it("hält den Request unter dem Body-Limit von Vercel – die PDF geht direkt nach Blob", () => {
+    // 4,5 MB je Anfrage, darüber 413 vor der ersten Codezeile. Der Request
+    // trägt die PDF nur noch im Rückfall ohne Blob-Speicher; dort gilt die
+    // knappe Grenze, sonst nur der Pfad.
+    assert.match(dto, /MAX_LIST_PDF_BYTES = 4 \* 1024 \* 1024/);
+    assert.match(dto, /MAX_IMPORT_REQUEST_BYTES = 4\.5 \* 1024 \* 1024/);
+    assert.match(dto, /MAX_LIST_PDF_DIRECT_BYTES = 25 \* 1024 \* 1024/);
+    assert.match(importUi, /inRequest > MAX_LIST_PDF_BYTES/);
+    assert.match(importUi, /selected\.size \+ inRequest > MAX_IMPORT_REQUEST_BYTES/);
+    const service = readFileSync("src/modules/vehicles/import-service.ts", "utf8");
+    assert.match(service, /source\.file\.size > MAX_LIST_PDF_BYTES/);
+  });
+
+  it("prüft die Größe, bevor irgendetwas hochgeladen wird", () => {
+    const send = importUi.slice(importUi.indexOf("async function send("));
+    assert.ok(
+      send.indexOf("sizeProblem(selected, pdf)") < send.indexOf("new FormData()"),
+      "Größenprüfung vor dem Bauen des Requests",
+    );
+  });
+
+  it("bleibt bei einer Nicht-JSON-Antwort nicht hängen", () => {
+    // Ein 413 der Plattform kommt als Klartext. Vorher warf response.json()
+    // und die Seite blieb für immer bei "Dateien werden gelesen …".
+    assert.match(importUi, /JSON\.parse\(xhr\.responseText\)/);
+    assert.match(importUi, /xhr\.status === 413/);
+    assert.match(importUi, /xhr\.onerror/);
+    assert.ok(!/response\.json\(\)/.test(importUi));
+  });
+
+  it("zeigt echten Upload-Fortschritt und danach die Analysephase", () => {
+    assert.match(importUi, /xhr\.upload\.onprogress/);
+    assert.match(importUi, /event\.lengthComputable/);
+    assert.match(importUi, /kind: "uploading"; what: "pdf" \| "request"; sent: number; total: number/);
+    assert.match(importUi, /kind: "analyzing"/);
+    assert.match(importUi, /Fahrzeugliste wird analysiert/);
+    assert.match(importUi, /CSV wird gelesen und mit dem Bestand abgeglichen/);
+    assert.ok(!/Dateien werden gelesen …/.test(importUi));
+  });
+
+  it("zeigt keinen erfundenen Prozentwert", () => {
+    const notice = importUi.slice(importUi.indexOf("function ProgressNotice"));
+    assert.ok(!/%/.test(notice.slice(0, notice.indexOf("// ----"))), "kein Prozentzeichen");
+    assert.match(notice, /formatMegabytes\(phase\.sent\)/);
+  });
+
+  it("weist nach 15 Sekunden darauf hin, dass noch verarbeitet wird", () => {
+    assert.match(importUi, /SLOW_HINT_AFTER_MS = 15_000/);
+    assert.match(importUi, /Die Fahrzeugliste wird noch verarbeitet\. Bei größeren PDFs kann dies\s+einen Moment dauern\./);
+  });
+
+  it("protokolliert serverseitig nur Dauern, keine Inhalte", () => {
+    const route = readFileSync("src/app/api/admin/vehicles/import/route.ts", "utf8");
+    const log = route.slice(route.indexOf('logger.info("Bestandsvorschau erstellt"'));
+    const block = log.slice(0, log.indexOf("});") + 3);
+    assert.match(block, /\.\.\.preview\.timings/);
+    assert.match(block, /requestMs/);
+    assert.ok(!/fileName|rows|cards:\s*preview\.enrichment\?\.list\.cards\b[^.]/.test(block));
+    assert.ok(!/vin|stockNumber|make|model/.test(block), "keine Fahrzeugdaten im Log");
   });
 });
