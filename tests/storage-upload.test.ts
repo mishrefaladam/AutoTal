@@ -59,7 +59,9 @@ describe("Upload-Grenzen und Production-Sicherheit", () => {
     assert.equal(MAX_UPLOAD_REQUEST_BYTES, 4 * 1024 * 1024);
     assert.match(route, /content-length/);
     assert.match(route, /totalBytes > MAX_UPLOAD_REQUEST_BYTES/);
-    assert.match(client, /totalBytes > MAX_UPLOAD_REQUEST_BYTES/);
+    // Der Client lehnt eine große Auswahl nicht mehr ab, sondern teilt sie in
+    // Stapel, die einzeln unter dem Limit bleiben.
+    assert.match(client, /batchFiles\(selected, MAX_UPLOAD_REQUEST_BYTES, MAX_FILES_PER_REQUEST\)/);
   });
 
   it("verwendet weiterhin Node.js und schützt den Upload per Admin-Session", () => {

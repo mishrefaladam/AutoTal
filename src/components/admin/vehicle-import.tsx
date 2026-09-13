@@ -12,6 +12,11 @@ import {
 } from "lucide-react";
 
 import { AdminCard } from "@/components/admin/admin-page-header";
+import {
+  EnrichmentReview,
+  defaultDecisions,
+  hasEnrichmentWork,
+} from "@/components/admin/vehicle-import-enrichment";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { formatEuro, formatKilometers } from "@/lib/money";
@@ -22,19 +27,26 @@ import {
   type ImportCommitResponse,
   type ImportPreviewResponse,
 } from "@/modules/vehicles/import-dto";
+import type { EnrichmentDecision } from "@/modules/vehicles/import-enrichment";
 
 /**
- * Bestandsimport aus CSV.
+ * Fahrzeugbestand aktualisieren: CSV als Basis, PDF als Ergänzung.
+ *
+ *   1. CSV hochladen – der Bestand aus dem Händlersystem.
+ *   2. Optional die Fahrzeuglisten-PDF – technische Daten und Fotos.
+ *   3. Prüfen: Was die CSV tut, was die PDF ergänzt, wo eine Zuordnung nötig ist.
+ *   4. Bestätigen.
  *
  * Der Ablauf ist absichtlich zweistufig: Erst zeigt der Server, was er tun
  * würde, dann führt ein zweiter, ausdrücklicher Klick es aus. Ein Import, der
  * beim Auswählen der Datei losläuft, wäre bei einer falschen Datei nicht mehr
  * einzufangen.
  *
- * Für den zweiten Schritt wird dieselbe Datei erneut hochgeladen und
- * serverseitig neu eingelesen. Das ist eine Anfrage mehr, spart aber
- * Zwischenspeicher: Es liegt kein Bestandsauszug irgendwo herum, und die
- * Vorschau kann nicht von dem abweichen, was tatsächlich geschrieben wird.
+ * Für den zweiten Schritt werden dieselben Dateien erneut hochgeladen und
+ * serverseitig neu eingelesen; die Entscheidungen aus dem Review gehen als
+ * JSON mit. Das ist eine Anfrage mehr, spart aber Zwischenspeicher: Es liegt
+ * kein Bestandsauszug irgendwo herum, und die Vorschau kann nicht von dem
+ * abweichen, was tatsächlich geschrieben wird.
  *
  * Alle Werte werden als Text ausgegeben – React maskiert sie. Nichts aus der
  * Datei wird als HTML interpretiert.
@@ -56,17 +68,26 @@ type State =
 export function VehicleImport() {
   const router = useRouter();
   const inputRef = useRef<HTMLInputElement>(null);
+  const pdfInputRef = useRef<HTMLInputElement>(null);
 
   const [file, setFile] = useState<File | null>(null);
+  const [pdfFile, setPdfFile] = useState<File | null>(null);
   const [state, setState] = useState<State>({ step: "idle" });
   const [error, setError] = useState<string | null>(null);
+  /** Entscheidungen des PDF-Reviews, je Karte. */
+  const [decisions, setDecisions] = useState<Record<string, EnrichmentDecision>>({});
 
   async function send(
     selected: File,
+    pdf: File | null,
     mode: "preview" | "commit",
   ): Promise<ImportPreviewResponse | ImportCommitResponse | null> {
     const body = new FormData();
     body.append("file", selected);
+    if (pdf) body.append("pdf", pdf);
+    if (mode === "commit") {
+      body.append("decisions", JSON.stringify(Object.values(decisions)));
+    }
     body.append("mode", mode);
 
     const response = await fetch("/api/admin/vehicles/import", {
@@ -89,23 +110,41 @@ export function VehicleImport() {
     return result;
   }
 
-  async function handleSelect(selected: File | null) {
+  /** Vorschau neu laden – nach jeder Dateiänderung, CSV wie PDF. */
+  async function refreshPreview(selected: File | null, pdf: File | null) {
     setError(null);
-    setFile(selected);
 
     if (!selected) {
       setState({ step: "idle" });
+      setDecisions({});
       return;
     }
 
     setState({ step: "loading" });
-    const result = await send(selected, "preview");
+    const result = await send(selected, pdf, "preview");
 
-    setState(
-      result && result.mode === "preview"
-        ? { step: "preview", data: result }
-        : { step: "idle" },
-    );
+    if (result && result.mode === "preview") {
+      setState({ step: "preview", data: result });
+      setDecisions(result.enrichment ? defaultDecisions(result.enrichment) : {});
+    } else {
+      setState({ step: "idle" });
+      setDecisions({});
+    }
+  }
+
+  function handleSelect(selected: File | null) {
+    setFile(selected);
+    void refreshPreview(selected, pdfFile);
+  }
+
+  function handleSelectPdf(selected: File | null) {
+    setPdfFile(selected);
+    if (file) void refreshPreview(file, selected);
+  }
+
+  function clearPdf() {
+    if (pdfInputRef.current) pdfInputRef.current.value = "";
+    handleSelectPdf(null);
   }
 
   async function handleImport() {
@@ -114,12 +153,15 @@ export function VehicleImport() {
     setError(null);
     setState({ step: "importing", data: state.data });
 
-    const result = await send(file, "commit");
+    const result = await send(file, pdfFile, "commit");
 
     if (result && result.mode === "commit") {
       setState({ step: "done", data: result });
       setFile(null);
+      setPdfFile(null);
+      setDecisions({});
       if (inputRef.current) inputRef.current.value = "";
+      if (pdfInputRef.current) pdfInputRef.current.value = "";
       // Fahrzeugliste und Beitragsassistent zeigen sofort den neuen Stand.
       router.refresh();
     } else {
@@ -128,6 +170,7 @@ export function VehicleImport() {
   }
 
   const busy = state.step === "loading" || state.step === "importing";
+  const enrichmentWork = hasEnrichmentWork(decisions);
 
   return (
     <div className="space-y-6">
@@ -145,7 +188,7 @@ export function VehicleImport() {
       )}
 
       <AdminCard
-        title="CSV-Datei auswählen"
+        title="Schritt 1 · Fahrzeugbestand (CSV)"
         description="Der Export aus Ihrem Fahrzeugverwaltungssystem. Erwartet werden Spalten wie GW-Nr, FIN, Marke, Modell, Farbe, KM-Stand, Baujahr und Preis – Schreibweise und Reihenfolge sind egal."
       >
         <input
@@ -153,7 +196,7 @@ export function VehicleImport() {
           type="file"
           accept=".csv,text/csv"
           disabled={busy}
-          onChange={(event) => void handleSelect(event.target.files?.[0] ?? null)}
+          onChange={(event) => handleSelect(event.target.files?.[0] ?? null)}
           className={cn(
             "border-border w-full rounded-lg border border-dashed p-4 text-sm",
             "file:border-border file:bg-muted file:mr-4 file:rounded-md file:border file:px-3 file:py-1.5 file:text-sm file:font-medium",
@@ -168,20 +211,75 @@ export function VehicleImport() {
           willhaben-Widget und wird davon nicht berührt.
         </p>
 
+      </AdminCard>
+
+      {/*
+        * Die PDF ist eine Ergänzung, keine zweite Quelle: Sie legt nichts an.
+        * Deshalb erst wählbar, wenn die CSV da ist – ohne Bestand gibt es
+        * nichts zu ergänzen.
+        */}
+      <AdminCard
+        title="Schritt 2 · Fahrzeugliste (PDF), optional"
+        description="Die CSV enthält den Fahrzeugbestand. Eine zusätzliche Fahrzeuglisten-PDF („Unser Fahrzeugbestand vom …“) kann technische Daten wie Leistung, Hubraum und Antrieb sowie Fotos ergänzen."
+      >
+        <input
+          ref={pdfInputRef}
+          type="file"
+          accept=".pdf,application/pdf"
+          disabled={busy || !file}
+          onChange={(event) => handleSelectPdf(event.target.files?.[0] ?? null)}
+          className={cn(
+            "border-border w-full rounded-lg border border-dashed p-4 text-sm",
+            "file:border-border file:bg-muted file:mr-4 file:rounded-md file:border file:px-3 file:py-1.5 file:text-sm file:font-medium",
+            (busy || !file) && "opacity-60",
+          )}
+          aria-label="Fahrzeuglisten-PDF (optional)"
+        />
+
+        <div className="mt-3 flex flex-wrap items-center gap-3">
+          <p className="text-muted-foreground text-xs leading-relaxed">
+            {!file
+              ? "Bitte zuerst die CSV auswählen."
+              : pdfFile
+                ? `„${pdfFile.name}“ wird mit der CSV zusammengeführt. Was die PDF ergänzt, sehen Sie unten – nichts davon wird ohne Ihre Prüfung übernommen.`
+                : "Ohne PDF läuft der Import wie bisher, nur mit der CSV."}
+          </p>
+          {pdfFile && (
+            <Button type="button" variant="ghost" size="sm" disabled={busy} onClick={clearPdf}>
+              PDF entfernen
+            </Button>
+          )}
+        </div>
+
         {state.step === "loading" && (
           <p className="text-muted-foreground mt-4 flex items-center gap-2 text-sm">
             <Loader2 className="size-4 animate-spin" aria-hidden="true" />
-            Datei wird gelesen …
+            Dateien werden gelesen …
           </p>
         )}
       </AdminCard>
 
       {(state.step === "preview" || state.step === "importing") && (
-        <Preview
-          data={state.data}
-          busy={state.step === "importing"}
-          onImport={() => void handleImport()}
-        />
+        <>
+          <Preview data={state.data} />
+
+          {state.data.enrichment && (
+            <EnrichmentReview
+              data={state.data.enrichment}
+              decisions={decisions}
+              onChange={(cardKey, decision) =>
+                setDecisions((current) => ({ ...current, [cardKey]: decision }))
+              }
+            />
+          )}
+
+          <ConfirmStep
+            data={state.data}
+            busy={state.step === "importing"}
+            enrichmentWork={enrichmentWork}
+            onImport={() => void handleImport()}
+          />
+        </>
       )}
 
       {state.step === "done" && <Result data={state.data} />}
@@ -190,20 +288,63 @@ export function VehicleImport() {
 }
 
 // ---------------------------------------------------------------------------
-// Vorschau
+// Schritt 4: Bestätigen
 // ---------------------------------------------------------------------------
 
-function Preview({
+function ConfirmStep({
   data,
   busy,
+  enrichmentWork,
   onImport,
 }: {
   data: ImportPreviewResponse;
   busy: boolean;
+  enrichmentWork: boolean;
   onImport: () => void;
 }) {
   const { counts } = data;
-  const nothingToDo = counts.create + counts.update === 0;
+  const nothingToDo = counts.create + counts.update === 0 && !enrichmentWork;
+
+  return (
+    <AdminCard title="Schritt 4 · Bestätigen">
+      <div className="flex flex-wrap items-center gap-3">
+        <Button
+          variant="brand"
+          size="2xl"
+          disabled={busy || nothingToDo}
+          title={
+            nothingToDo
+              ? "Es gibt nichts anzulegen, zu ändern oder zu ergänzen."
+              : undefined
+          }
+          onClick={onImport}
+        >
+          {busy ? (
+            <Loader2
+              data-icon="inline-start"
+              className="animate-spin"
+              aria-hidden="true"
+            />
+          ) : (
+            <Upload data-icon="inline-start" aria-hidden="true" />
+          )}
+          {busy ? "Import läuft …" : "Bestand jetzt aktualisieren"}
+        </Button>
+
+        <p className="text-muted-foreground text-sm">
+          Bis hierher wurde nichts gespeichert.
+        </p>
+      </div>
+    </AdminCard>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Vorschau
+// ---------------------------------------------------------------------------
+
+function Preview({ data }: { data: ImportPreviewResponse }) {
+  const { counts } = data;
 
   return (
     <>
@@ -237,7 +378,7 @@ function Preview({
         )}
       </AdminCard>
 
-      <AdminCard title="Das würde der Import tun">
+      <AdminCard title="Schritt 3 · Prüfen: Das würde die CSV tun">
         <dl className="grid gap-3 sm:grid-cols-3 lg:grid-cols-5">
           <Stat label="Zeilen" value={counts.dataRows} />
           <Stat label="Neu" value={counts.create} tone="success" />
@@ -262,35 +403,6 @@ function Preview({
         )}
 
         <Notices data={data} />
-
-        <div className="border-border mt-6 flex flex-wrap items-center gap-3 border-t pt-5">
-          <Button
-            variant="brand"
-            size="2xl"
-            disabled={busy || nothingToDo}
-            title={
-              nothingToDo
-                ? "Diese Datei enthält keine anzulegenden oder zu ändernden Fahrzeuge."
-                : undefined
-            }
-            onClick={onImport}
-          >
-            {busy ? (
-              <Loader2
-                data-icon="inline-start"
-                className="animate-spin"
-                aria-hidden="true"
-              />
-            ) : (
-              <Upload data-icon="inline-start" aria-hidden="true" />
-            )}
-            {busy ? "Import läuft …" : "Import jetzt ausführen"}
-          </Button>
-
-          <p className="text-muted-foreground text-sm">
-            Bis hierher wurde nichts gespeichert.
-          </p>
-        </div>
       </AdminCard>
 
       {data.rows.length > 0 && (
@@ -490,6 +602,16 @@ function Result({ data }: { data: ImportCommitResponse }) {
           {data.inactive === 1
             ? "1 Fahrzeug ohne Inserat wurde nicht importiert."
             : `${data.inactive} Fahrzeuge ohne Inserat wurden nicht importiert.`}
+        </p>
+      )}
+
+      {(data.enriched > 0 || data.imagesStored > 0) && (
+        <p className="text-muted-foreground mt-2 text-sm leading-relaxed">
+          Aus der Fahrzeugliste ergänzt:{" "}
+          {data.enriched === 1 ? "1 Fahrzeug" : `${data.enriched} Fahrzeuge`}
+          {data.imagesStored > 0 &&
+            `, ${data.imagesStored === 1 ? "1 Foto" : `${data.imagesStored} Fotos`} gespeichert`}
+          .
         </p>
       )}
 

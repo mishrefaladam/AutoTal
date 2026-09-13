@@ -1,21 +1,39 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { revalidatePath } from "next/cache";
 
+import { z } from "zod";
+
 import { logger } from "@/lib/logger";
+import { formatEuro, formatKilometers, formatNumber } from "@/lib/money";
 import { UserFacingError } from "@/lib/result";
 import { getAdminSession } from "@/modules/admin/auth";
 import { FIELD_LABELS } from "@/modules/vehicles/csv-import";
 import type {
+  EnrichmentChangeDto,
+  EnrichmentEntryDto,
+  EnrichmentOptionDto,
   ImportCommitResponse,
+  ImportEnrichmentDto,
   ImportPreviewResponse,
   ImportPreviewRow,
 } from "@/modules/vehicles/import-dto";
+import {
+  ENRICHMENT_FIELDS,
+  diffCardAgainstTarget,
+  targetRefKey,
+  type EnrichmentChange,
+  type EnrichmentDecision,
+  type EnrichmentField,
+  type EnrichmentTarget,
+} from "@/modules/vehicles/import-enrichment";
 import type { ImportValues } from "@/modules/vehicles/import-plan";
 import {
   applyImportPlan,
   buildImportPreview,
   type ImportPreview,
 } from "@/modules/vehicles/import-service";
+import { DRIVETRAIN_LABELS, formatMonthYear } from "@/modules/vehicles/labels";
+import type { VehicleListCard } from "@/modules/vehicles/vehicle-list-pdf";
 
 /**
  * CSV-Bestandsimport (Vorschau und Ausführung).
@@ -28,6 +46,11 @@ import {
  * Proxy bereits gegen Unangemeldete abriegelt; die Prüfung hier steht
  * trotzdem – ein Endpunkt, der Fahrzeuge anlegt, verlässt sich nicht auf eine
  * vorgelagerte Schicht.
+ *
+ * Optional kommt eine Fahrzeuglisten-PDF mit (`pdf`). Beim Bestätigen werden
+ * beide Dateien erneut gelesen und die Entscheidungen des Reviews
+ * (`decisions`, JSON) auf den neu berechneten Plan angewandt – so kann die
+ * Vorschau nicht von dem abweichen, was geschrieben wird.
  */
 
 export const runtime = "nodejs";
@@ -48,6 +71,145 @@ const CHANGED_FIELD_LABELS: Record<keyof ImportValues, string> = {
   firstRegistration: "Baujahr",
   daysInStock: "Standzeit",
 };
+
+const ENRICHMENT_FIELD_LABELS: Record<EnrichmentField, string> = {
+  variant: "Bezeichnung",
+  firstRegistration: "Erstzulassung",
+  mileageKm: "Kilometer",
+  priceCents: "Preis",
+  powerKw: "Leistung",
+  displacementCcm: "Hubraum",
+  color: "Farbe",
+  drivetrain: "Antrieb",
+};
+
+function formatEnrichmentValue(
+  field: EnrichmentField,
+  value: EnrichmentChange["current"],
+): string | null {
+  if (value === null) return null;
+  switch (field) {
+    case "firstRegistration":
+      return value instanceof Date ? formatMonthYear(value) : String(value);
+    case "mileageKm":
+      return formatKilometers(Number(value));
+    case "priceCents":
+      return formatEuro(Number(value));
+    case "powerKw":
+      return `${formatNumber(Number(value))} kW`;
+    case "displacementCcm":
+      return `${formatNumber(Number(value))} cm³`;
+    case "drivetrain":
+      return DRIVETRAIN_LABELS[value as keyof typeof DRIVETRAIN_LABELS] ?? String(value);
+    default:
+      return String(value);
+  }
+}
+
+function toChangeDto(change: EnrichmentChange): EnrichmentChangeDto {
+  return {
+    field: change.field,
+    label: ENRICHMENT_FIELD_LABELS[change.field],
+    kind: change.kind,
+    current: formatEnrichmentValue(change.field, change.current),
+    proposed: formatEnrichmentValue(change.field, change.proposed) ?? "",
+    preselected: change.preselected,
+  };
+}
+
+function targetDetail(target: EnrichmentTarget): string {
+  return [
+    target.firstRegistration ? formatMonthYear(target.firstRegistration) : null,
+    target.mileageKm !== null ? formatKilometers(target.mileageKm) : null,
+    target.priceCents !== null ? formatEuro(target.priceCents) : null,
+    target.stockNumber ? `GW-Nr. ${target.stockNumber}` : null,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+}
+
+function cardDetail(card: VehicleListCard): string {
+  return [
+    card.firstRegistration ? formatMonthYear(card.firstRegistration) : null,
+    card.mileageKm !== null ? formatKilometers(card.mileageKm) : null,
+    card.priceCents !== null ? formatEuro(card.priceCents) : null,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+}
+
+function toOptionDto(card: VehicleListCard, target: EnrichmentTarget): EnrichmentOptionDto {
+  return {
+    ref: target.ref,
+    key: targetRefKey(target.ref),
+    title: target.title,
+    detail: targetDetail(target),
+    changes: diffCardAgainstTarget(card, target).map(toChangeDto),
+    imagePreselected: card.image !== null && target.imageCount === 0,
+  };
+}
+
+function toEnrichmentDto(
+  enrichment: NonNullable<ImportPreview["enrichment"]>,
+): ImportEnrichmentDto {
+  const entries: EnrichmentEntryDto[] = enrichment.plan.entries.map((entry) => {
+    const targets =
+      entry.match.kind === "safe" ? [entry.match.target] : entry.match.candidates;
+
+    return {
+      cardKey: entry.card.key,
+      title: `${entry.card.make} ${entry.card.model}`.trim(),
+      variant: entry.card.variant,
+      detail: cardDetail(entry.card),
+      matchKind: entry.match.kind,
+      defaultKey: entry.match.kind === "safe" ? targetRefKey(entry.match.target.ref) : null,
+      options: targets.map((target) => toOptionDto(entry.card, target)),
+      hasImage: entry.card.image !== null,
+      warnings: entry.card.warnings,
+    };
+  });
+
+  return {
+    fileName: enrichment.fileName,
+    listedAt: enrichment.list.listedAt,
+    pages: enrichment.list.pages,
+    counts: { cards: enrichment.list.cards.length, ...enrichment.plan.counts },
+    entries,
+    warnings: enrichment.warnings,
+  };
+}
+
+/** Entscheidungen des Reviews – streng geprüft, sie kommen vom Client. */
+const decisionsSchema = z
+  .array(
+    z.object({
+      cardKey: z.string().min(1).max(20),
+      target: z
+        .union([
+          z.object({ kind: z.literal("existing"), id: z.string().min(1).max(64) }),
+          z.object({ kind: z.literal("create"), line: z.number().int().positive() }),
+        ])
+        .nullable(),
+      acceptedFields: z.array(z.enum(ENRICHMENT_FIELDS)).max(ENRICHMENT_FIELDS.length),
+      useImage: z.boolean(),
+    }),
+  )
+  .max(500);
+
+function parseDecisions(raw: FormDataEntryValue | null): EnrichmentDecision[] {
+  if (typeof raw !== "string" || raw.trim() === "") return [];
+  let json: unknown;
+  try {
+    json = JSON.parse(raw);
+  } catch {
+    throw new UserFacingError("Die Review-Entscheidungen sind unlesbar.", "VALIDATION");
+  }
+  const parsed = decisionsSchema.safeParse(json);
+  if (!parsed.success) {
+    throw new UserFacingError("Die Review-Entscheidungen sind ungültig.", "VALIDATION");
+  }
+  return parsed.data;
+}
 
 function toPreviewResponse(preview: ImportPreview): ImportPreviewResponse {
   const { parsed, plan } = preview;
@@ -113,6 +275,7 @@ function toPreviewResponse(preview: ImportPreview): ImportPreviewResponse {
     })),
     fileWarnings: parsed.fileWarnings,
     rowErrors: parsed.errors,
+    enrichment: preview.enrichment ? toEnrichmentDto(preview.enrichment) : null,
   };
 }
 
@@ -134,6 +297,8 @@ export async function POST(request: NextRequest) {
   }
 
   const file = formData.get("file");
+  const pdfEntry = formData.get("pdf");
+  const pdf = pdfEntry instanceof File && pdfEntry.size > 0 ? pdfEntry : null;
   const mode = formData.get("mode") === "commit" ? "commit" : "preview";
 
   if (!(file instanceof File)) {
@@ -141,13 +306,14 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const preview = await buildImportPreview(file);
+    const preview = await buildImportPreview(file, pdf);
 
     if (mode === "preview") {
       return NextResponse.json(toPreviewResponse(preview));
     }
 
-    const { outcome, failures } = await applyImportPlan(preview);
+    const decisions = parseDecisions(formData.get("decisions"));
+    const { outcome, failures } = await applyImportPlan(preview, decisions);
 
     logger.info("Bestandsimport ausgeführt", {
       userId: session.id,
@@ -155,6 +321,8 @@ export async function POST(request: NextRequest) {
       updated: outcome.updated,
       unchanged: outcome.unchanged,
       markedMissing: outcome.markedMissing,
+      enriched: outcome.enriched,
+      imagesStored: outcome.imagesStored,
       failures: failures.length,
     });
 
@@ -172,6 +340,8 @@ export async function POST(request: NextRequest) {
       skipped: outcome.skipped,
       rowErrors: outcome.rowErrors,
       inactive: outcome.inactive,
+      enriched: outcome.enriched,
+      imagesStored: outcome.imagesStored,
       failures,
     };
 

@@ -1,3 +1,5 @@
+import type { DrivetrainType } from "@/generated/prisma/enums";
+
 import type { ParsedVehicleRow } from "./csv-import";
 import { mergeEquipment } from "./equipment";
 
@@ -17,6 +19,13 @@ export const IMPORT_SOURCE = "csv-import";
 
 export type ExistingVehicle = {
   features?: string[];
+  // Nur für die Ergänzung aus der Fahrzeuglisten-PDF gelesen; optional, weil
+  // der CSV-Planer sie nicht braucht.
+  variant?: string | null;
+  powerKw?: number | null;
+  displacementCcm?: number | null;
+  drivetrain?: DrivetrainType | null;
+  imageCount?: number;
   id: string;
   title: string;
   stockNumber: string | null;

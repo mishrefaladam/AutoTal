@@ -1,3 +1,9 @@
+import type {
+  EnrichmentChangeKind,
+  EnrichmentField,
+  EnrichmentTargetRef,
+} from "./import-enrichment";
+
 /**
  * Was die Importseite vom Server zurückbekommt.
  *
@@ -67,6 +73,58 @@ export type ImportPreviewResponse = {
   fileWarnings: string[];
   /** Zeilen, die kein Fahrzeug ergeben. */
   rowErrors: { line: number; message: string }[];
+  /** Ergänzung aus der Fahrzeuglisten-PDF, falls eine hochgeladen wurde. */
+  enrichment: ImportEnrichmentDto | null;
+};
+
+// ---------------------------------------------------------------------------
+// Fahrzeuglisten-PDF: anzeigefertig für das Review
+// ---------------------------------------------------------------------------
+
+/** Ein mögliches Zielfahrzeug einer PDF-Karte, mit dem, was sich ändern würde. */
+export type EnrichmentOptionDto = {
+  ref: EnrichmentTargetRef;
+  /** Schlüssel für Auswahlfelder, z. B. "existing:abc" oder "create:12". */
+  key: string;
+  title: string;
+  /** Unterscheidungsmerkmale in einer Zeile: "12/2016 · 294.330 km · 17.990 €". */
+  detail: string;
+  changes: EnrichmentChangeDto[];
+  /** Foto vorausgewählt, weil das Fahrzeug noch keines hat. */
+  imagePreselected: boolean;
+};
+
+export type EnrichmentChangeDto = {
+  field: EnrichmentField;
+  label: string;
+  kind: EnrichmentChangeKind;
+  current: string | null;
+  proposed: string;
+  preselected: boolean;
+};
+
+export type EnrichmentEntryDto = {
+  cardKey: string;
+  title: string;
+  variant: string | null;
+  /** Kennzahlen der Karte: "12/2016 · 294.330 km · 17.990 €". */
+  detail: string;
+  /** safe = genau ein Treffer; ambiguous = mehrere; unmatched = keiner. */
+  matchKind: "safe" | "ambiguous" | "unmatched";
+  /** Bei "safe" das gefundene Fahrzeug, sonst null. */
+  defaultKey: string | null;
+  options: EnrichmentOptionDto[];
+  hasImage: boolean;
+  warnings: string[];
+};
+
+export type ImportEnrichmentDto = {
+  fileName: string;
+  listedAt: string | null;
+  pages: number;
+  counts: { cards: number; safe: number; ambiguous: number; unmatched: number };
+  entries: EnrichmentEntryDto[];
+  warnings: string[];
 };
 
 export type ImportCommitResponse = {
@@ -81,6 +139,9 @@ export type ImportCommitResponse = {
   rowErrors: number;
   /** Zeilen ohne Inserat – nicht importiert, nur gezählt. */
   inactive: number;
+  /** Aus der Fahrzeuglisten-PDF ergänzte Fahrzeuge und gespeicherte Fotos. */
+  enriched: number;
+  imagesStored: number;
   /** Zeilen, die beim Schreiben scheiterten. Nie stillschweigend. */
   failures: string[];
 };

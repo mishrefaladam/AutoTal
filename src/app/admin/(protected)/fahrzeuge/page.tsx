@@ -110,7 +110,7 @@ export default async function AdminVehiclesPage({
           <Button asChild variant="outline" size="xl">
             <Link href="/admin/fahrzeuge/import">
               <Upload data-icon="inline-start" aria-hidden="true" />
-              Bestand importieren
+              Bestand aktualisieren
             </Link>
           </Button>
 

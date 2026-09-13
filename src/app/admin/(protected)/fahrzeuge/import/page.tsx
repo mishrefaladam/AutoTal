@@ -8,7 +8,7 @@ import { VehicleImport } from "@/components/admin/vehicle-import";
 import { Button } from "@/components/ui/button";
 import { countMissingImportedVehicles } from "@/modules/vehicles/admin-repository";
 
-export const metadata: Metadata = { title: "Bestand importieren" };
+export const metadata: Metadata = { title: "Fahrzeugbestand aktualisieren" };
 
 /**
  * Bestandsimport aus einer CSV-Datei des Händlersystems.
@@ -23,8 +23,8 @@ export default async function VehicleImportPage() {
   return (
     <>
       <AdminPageHeader
-        title="Bestand importieren"
-        description="Laden Sie den CSV-Export aus Ihrem Fahrzeugverwaltungssystem hoch. Sie sehen zuerst, was passieren würde, und lösen den Import danach ausdrücklich aus."
+        title="Fahrzeugbestand aktualisieren"
+        description="Die CSV enthält den Fahrzeugbestand. Eine zusätzliche Fahrzeuglisten-PDF kann technische Daten und Bilder ergänzen. Sie sehen zuerst, was passieren würde, und bestätigen danach ausdrücklich."
         action={
           <Button asChild variant="outline" size="xl">
             <Link href="/admin/fahrzeuge">

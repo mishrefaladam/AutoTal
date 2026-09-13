@@ -189,8 +189,11 @@ describe("CSV-Import und manuelle Pflege", () => {
   it("schreibt beim Aktualisieren nur die Felder der CSV", () => {
     // Nur der Aktualisierungszweig zählt: Beim ANLEGEN darf der Import sehr
     // wohl status: "IN_STOCK" setzen – ein neues Fahrzeug braucht einen Stand.
+    // Ab dem Aktualisierungszweig in applyImportPlan – weiter oben gibt es
+    // inzwischen eine gleichlautende Schleife für die PDF-Ergänzung.
+    const applyStart = importService.indexOf("export async function applyImportPlan");
     const updateBlock = importService.slice(
-      importService.indexOf("for (const entry of ["),
+      importService.indexOf("for (const entry of [", applyStart),
       importService.indexOf("// --- Fehlende Fahrzeuge nur markieren"),
     );
 
