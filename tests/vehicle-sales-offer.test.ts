@@ -391,12 +391,16 @@ describe("Unveränderte Regeln", () => {
     }
   });
 
-  it("gibt die neuen Angaben an den Social-Media-Prompt weiter", () => {
+  it("hält Hubraum, Farbe und Getriebe aus dem Instagram-Text heraus", () => {
+    // Die Werte werden übernommen und im Admin geführt; der Beitrag nennt
+    // laut Kundenvorgabe nur Name, Kilometer, Baujahr und Leistung.
     const openai = readFileSync("src/integrations/openai/index.ts", "utf8");
+    const caption = readFileSync("src/modules/social/caption.ts", "utf8");
 
-    assert.match(openai, /if \(vehicle\.displacementCcm !== null\)/);
-    assert.match(openai, /if \(vehicle\.color\) facts\.push/);
-    assert.match(openai, /if \(vehicle\.transmission\)/);
+    for (const field of ["displacementCcm", "color", "transmission"]) {
+      assert.ok(!openai.includes(`vehicle.${field}`), `${field} im Prompt`);
+      assert.ok(!caption.includes(field), `${field} in der Vorlage`);
+    }
   });
 
   it("weist beim Bildvorschlag auf eingeblendete Angaben hin", () => {

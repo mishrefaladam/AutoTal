@@ -3,7 +3,6 @@ import type { Metadata } from "next";
 import { AdminPageHeader } from "@/components/admin/admin-page-header";
 import { SocialMediaManager } from "@/components/admin/social-media-manager";
 import { getInstagramConnection } from "@/integrations/instagram";
-import { deploymentEnvironment, isOpenAIConfigured } from "@/lib/env";
 import {
   listSocialDrafts,
   listVehiclesForSocial,
@@ -14,10 +13,10 @@ import { parseVehicleFilters } from "@/modules/vehicles/filters";
 export const metadata: Metadata = { title: "Social Media" };
 
 /**
- * KI-gestützte Beiträge (EPIC 7, EPIC 8).
+ * Social-Media-Beiträge (EPIC 7, EPIC 8).
  *
- * Die Seite zeigt nur den Verbindungsstatus – Zugangstokens verlassen den
- * Server nie.
+ * Der Text entsteht aus der AutoTal-Vorlage, ohne KI-Schlüssel. Die Seite
+ * zeigt nur den Verbindungsstatus – Zugangstokens verlassen den Server nie.
  */
 /**
  * Beworben wird, was im Bestand steht – deshalb ist "Im Bestand" die Vorgabe.
@@ -54,8 +53,6 @@ export default async function AdminSocialMediaPage({
         filterOptions={options}
         defaultStatus={DEFAULT_STATUS}
         drafts={drafts}
-        openAiConfigured={isOpenAIConfigured()}
-        deploymentEnvironment={deploymentEnvironment()}
         instagramConnected={connection.connected}
       />
     </>

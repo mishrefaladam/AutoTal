@@ -721,12 +721,18 @@ describe("Anbindung an Social Media", () => {
   const openai = readFileSync("src/integrations/openai/index.ts", "utf8");
   const socialActions = readFileSync("src/modules/social/actions.ts", "utf8");
 
-  it("gibt die übernommenen Fahrzeugdaten an den Prompt weiter", () => {
-    for (const fact of [
+  it("gibt nur Name, Kilometer, Baujahr und Leistung an den Beitrag weiter", () => {
+    // Die übernommenen Werte bleiben am Fahrzeug – der Instagram-Text nennt
+    // laut Kundenvorgabe aber nur diese vier. Leistung kommt aus powerKw.
+    const caption = readFileSync("src/modules/social/caption.ts", "utf8");
+    assert.match(caption, /powerKw/);
+    assert.match(caption, /firstRegistration/);
+    assert.match(caption, /mileageKm/);
+
+    for (const excluded of [
       "vehicle.fuel",
       "vehicle.transmission",
       "vehicle.drivetrain",
-      "vehicle.powerKw",
       "vehicle.displacementCcm",
       "vehicle.color",
       "vehicle.seats",
@@ -736,14 +742,15 @@ describe("Anbindung an Social Media", () => {
       "vehicle.extras",
       "vehicle.highlights",
     ]) {
-      assert.ok(openai.includes(fact), `${fact} fehlt im Prompt`);
+      assert.ok(!openai.includes(excluded), `${excluded} steht noch im Prompt`);
+      assert.ok(!caption.includes(excluded.replace("vehicle.", "")), `${excluded} in der Vorlage`);
     }
   });
 
   it("erfindet weiterhin nichts", () => {
-    assert.match(openai, /if \(vehicle\.fuel\) facts\.push/);
-    assert.match(openai, /if \(vehicle\.extras\.length > 0\)/);
-    assert.match(openai, /if \(equipment\.length > 0\)/);
+    assert.match(openai, /nur diese verwenden, nichts ergänzen/);
+    assert.match(openai, /Erfinde keine Ausstattung, keine Garantie, keinen Preis/);
+    assert.match(openai, /Fehlt ein Wert, lasse die ganze Zeile weg/);
   });
 
   it("verwendet das erste Bild des Fahrzeugs für den Entwurf", () => {

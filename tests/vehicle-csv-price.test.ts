@@ -265,11 +265,14 @@ describe("Vorschau, Speichern und Weitergabe", () => {
     assert.match(list, /formatEuro\(vehicle\.priceCents\)/);
   });
 
-  it("gibt den Preis an die Beitragsauswahl und den Prompt weiter", () => {
+  it("gibt den Preis an die Beitragsauswahl weiter, nicht an den Beitrag", () => {
     const social = readFileSync("src/modules/social/repository.ts", "utf8");
     const openai = readFileSync("src/integrations/openai/index.ts", "utf8");
+    const caption = readFileSync("src/modules/social/caption.ts", "utf8");
 
     assert.match(social, /priceCents: true/);
-    assert.match(openai, /formatEuro\(vehicle\.priceCents\)/);
+    // Der Instagram-Text nennt laut Kundenvorgabe keinen Preis.
+    assert.ok(!/priceCents/.test(caption));
+    assert.ok(!/formatEuro\(vehicle\.priceCents\)/.test(openai));
   });
 });

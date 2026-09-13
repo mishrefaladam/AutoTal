@@ -5,26 +5,26 @@ import type { ChatCompletionCreateParamsNonStreaming } from "openai/resources/ch
 
 import { env, isOpenAIConfigured } from "@/lib/env";
 import { logger } from "@/lib/logger";
-import {
-  formatEuro,
-  formatKilometers,
-  formatNumber,
-  formatPower,
-} from "@/lib/money";
+import { formatNumber } from "@/lib/money";
 import { UserFacingError } from "@/lib/result";
 import {
-  BODY_TYPE_LABELS,
-  CONDITION_LABELS,
-  DRIVETRAIN_LABELS,
-  FUEL_LABELS,
-  TRANSMISSION_LABELS,
-  formatRegistration,
-} from "@/modules/vehicles/labels";
-import { mergeEquipment } from "@/modules/vehicles/equipment";
+  AUTOTAL_CLOSING,
+  AUTOTAL_GREETING,
+  AUTOTAL_SERVICE_LINES,
+  buildInstagramCaption,
+  buildVehicleFactLines,
+  buildVehicleName,
+} from "@/modules/social/caption";
 import type { VehicleDetail } from "@/modules/vehicles/types";
 
 /**
  * Erzeugung von Instagram-Texten aus Fahrzeugdaten (US-19).
+ *
+ * STAND: Der Instagram-Beitrag entsteht derzeit aus der AutoTal-Vorlage in
+ * modules/social/caption.ts, nicht aus diesem Modul – der Text ist bis auf
+ * vier Fahrzeugwerte fest, dafür braucht es keine KI. Dieses Modul bleibt für
+ * spätere Social-Media-Funktionen erhalten; sein Prompt kennt dieselben vier
+ * Werte und dieselbe Vorlage, damit ein KI-Text den gleichen Regeln folgt.
  *
  * Zentrale Regel: Die KI darf keine Fahrzeugdaten erfinden. Dafür greifen
  * drei Ebenen:
@@ -94,22 +94,19 @@ export type CaptionGenerationDependencies = {
 export const DEFAULT_INSTAGRAM_MAX_CHARACTERS = 900;
 
 /**
- * Zentral änderbare Stilreferenz, bis der Stil später optional in den
- * Unternehmenseinstellungen gepflegt wird. Inhaltliche Aussagen daraus dürfen
- * niemals in einen Beitrag übernommen werden.
+ * Stilreferenz: die AutoTal-Vorlage mit Beispielwerten.
+ *
+ * Inhaltliche Aussagen daraus – der Porsche, seine Zahlen – dürfen niemals in
+ * einen Beitrag übernommen werden; sie zeigen nur den Aufbau.
  */
-export const DEFAULT_INSTAGRAM_STYLE_EXAMPLE = `BMW X5 40e | M-Paket | Hybrid
-07/2018 | 129.127 km
-180 kW - 245 PS | € 32.150
-
-Highlights:
-• Abstandstempomat
-• Memory-Sitze
-• 360°-Kamera
-• Head-up-Display
-
-Jetzt bei AutoTal anfragen.
-#AutoTal #Gebrauchtwagen #BMW #BMWX5`;
+export const DEFAULT_INSTAGRAM_STYLE_EXAMPLE = buildInstagramCaption({
+  make: "Porsche",
+  model: "Panamera",
+  variant: "4S",
+  mileageKm: 85_000,
+  firstRegistration: new Date(Date.UTC(2019, 5, 1)),
+  powerKw: 324,
+});
 
 function resolveStyleOptions(options: CaptionStyleOptions = {}) {
   const exampleText = options.exampleText?.trim() || DEFAULT_INSTAGRAM_STYLE_EXAMPLE;
@@ -136,14 +133,13 @@ ABSOLUTE REGELN:
 - Wenn eine Angabe fehlt, erwähne sie gar nicht. Schreibe niemals "ca.", "vermutlich", "und vieles mehr" oder einen Platzhalter.
 - Übernimm Preis und Kilometerstand exakt so, wie sie angegeben sind. Runde nicht, schätze nicht, formuliere sie nicht um.
 
-STIL:
-- Schreibe auf Deutsch, kurz, klar und verkaufsstark. Tonalität: ${tone}.
-- Klinge wie ein modernes Autohaus, nicht wie ein Chatbot und nicht wie generische Werbung.
-- Verwende vier bis sieben kurze Inhaltsblöcke und insgesamt höchstens ${maxCharacters} Zeichen inklusive Leerzeichen, aber ohne separat ausgegebene Hashtags.
-- Beginne mit einem kurzen, konkreten Einstieg und nenne danach Marke und Modell.
-- Nutze ausschließlich tatsächlich vorhandene Ausstattung und Extras. Wähle bei vielen Werten fünf bis acht verkaufsrelevante Ausstattungen aus; zähle nicht zwanghaft alle Merkmale auf. Vermeide Dubletten. Bei weniger Angaben nenne nur diese. Eine Überschrift "Highlights" ist erlaubt, aber keine eigene Faktenquelle. Fehlt Ausstattung vollständig, lasse den Block weg.
-- Verwende höchstens drei passende Emojis. Emojis sind optional.
-- Erwähne AutoTal als Autohaus bei Wien und schließe mit einer klaren Kontaktaufforderung, zum Beispiel einer Anfrage oder Terminvereinbarung.
+AUFBAU (halte dich eng an dieses Muster, Tonalität: ${tone}, höchstens ${maxCharacters} Zeichen):
+1. Erste Zeile exakt: "${AUTOTAL_GREETING}"
+2. Leerzeile, dann der Fahrzeugname und darunter je eine Zeile "Kilometer: …", "Baujahr: …", "Leistung: … PS" – ausschließlich die Zeilen, für die ein Wert angegeben ist. Fehlt ein Wert, lasse die ganze Zeile weg. Keine weiteren Fahrzeugangaben: keine Ausstattung, keine Extras, keine Farbe, kein Getriebe, kein Kraftstoff, kein Preis.
+3. Leerzeile, dann exakt diese drei Zeilen:
+${AUTOTAL_SERVICE_LINES.join("\n")}
+4. Leerzeile, dann exakt:
+${AUTOTAL_CLOSING}
 - Setze KEINE Hashtags in den Fließtext; die kommen separat.
 
 HASHTAGS:
@@ -153,9 +149,13 @@ HASHTAGS:
 }
 
 /**
- * Baut den Nutzer-Prompt ausschließlich aus tatsächlich vorhandenen Feldern.
- * Ein leeres Feld wird weggelassen statt mit "unbekannt" gefüllt – das
- * reduziert die Versuchung des Modells, es zu ergänzen.
+ * Baut den Nutzer-Prompt aus den vier Werten, die der Beitrag braucht.
+ *
+ * Fahrzeugname, Kilometer, Baujahr und Leistung in PS – dieselben Zeilen, die
+ * auch die Vorlage schreibt. Ein leerer Wert wird weggelassen statt mit
+ * "unbekannt" gefüllt; so kann das Modell ihn auch nicht "vervollständigen".
+ * Ausstattung, Preis, Farbe und alles Weitere gehen bewusst nicht mit: Was
+ * nicht im Prompt steht, kann der Text nicht enthalten.
  */
 export function buildVehiclePrompt(
   vehicle: VehicleDetail,
@@ -163,74 +163,16 @@ export function buildVehiclePrompt(
   options: CaptionStyleOptions = {},
 ): string {
   const { exampleText } = resolveStyleOptions(options);
-  const facts: string[] = [
-    `Marke: ${vehicle.make}`,
-    `Modell: ${vehicle.model}`,
+  const facts = [
+    `Fahrzeugname: ${buildVehicleName(vehicle)}`,
+    ...buildVehicleFactLines(vehicle),
   ];
-
-  if (vehicle.variant) facts.push(`Variante: ${vehicle.variant}`);
-
-  facts.push(`Preis: ${formatEuro(vehicle.priceCents)}`);
-  if (vehicle.vatDeductible) {
-    facts.push("Preisangabe: Nettopreis, vorsteuerabzugsberechtigt");
-  }
-
-  facts.push(`Kilometerstand: ${formatKilometers(vehicle.mileageKm)}`);
-
-  if (vehicle.firstRegistration) {
-    facts.push(`Erstzulassung: ${formatRegistration(vehicle.firstRegistration)}`);
-  }
-
-  // Regel 1 von oben in Reinform: Was nicht bekannt ist, taucht im Prompt gar
-  // nicht erst auf. Fahrzeuge aus dem CSV-Bestandsimport bringen weder
-  // Kraftstoff noch Getriebe mit; eine Vorbelegung stünde sonst als Tatsache
-  // im Beitrag.
-  if (vehicle.fuel) facts.push(`Kraftstoff: ${FUEL_LABELS[vehicle.fuel]}`);
-  if (vehicle.transmission) {
-    facts.push(`Getriebe: ${TRANSMISSION_LABELS[vehicle.transmission]}`);
-  }
-  // "Sonstige" ist die Voreinstellung der Spalte und keine Aussage über das
-  // Fahrzeug – sie gehört deshalb ebenso wenig in den Prompt.
-  if (vehicle.bodyType !== "OTHER") {
-    facts.push(`Aufbau: ${BODY_TYPE_LABELS[vehicle.bodyType]}`);
-  }
-  facts.push(`Fahrzeugart: ${CONDITION_LABELS[vehicle.condition]}`);
-
-  if (vehicle.drivetrain) {
-    facts.push(`Antrieb: ${DRIVETRAIN_LABELS[vehicle.drivetrain]}`);
-  }
-
-  if (vehicle.powerKw !== null) facts.push(`Leistung: ${formatPower(vehicle.powerKw)}`);
-  if (vehicle.displacementCcm !== null) {
-    facts.push(`Hubraum: ${formatNumber(vehicle.displacementCcm)} cm³`);
-  }
-  if (vehicle.color) facts.push(`Farbe: ${vehicle.color}`);
-  if (vehicle.doors !== null) facts.push(`Türen: ${vehicle.doors}`);
-  if (vehicle.seats !== null) facts.push(`Sitze: ${vehicle.seats}`);
-  if (vehicle.vehicleType) facts.push(`Fahrzeugtyp: ${vehicle.vehicleType}`);
-  if (vehicle.grossWeightKg !== null) {
-    facts.push(`Gesamtgewicht: ${formatNumber(vehicle.grossWeightKg)} kg`);
-  }
-
-  const equipment = mergeEquipment(vehicle.features, vehicle.highlights);
-  if (equipment.length > 0) {
-    facts.push(`Ausstattung:\n${equipment.map((value) => `  - ${value}`).join("\n")}`);
-  }
-
-  if (vehicle.extras.length > 0) {
-    facts.push(`Extras: ${vehicle.extras.join(", ")}`);
-  }
-
-
-  if (vehicle.description) {
-    facts.push(`Beschreibung des Händlers: ${vehicle.description}`);
-  }
 
   return [
     `Autohaus: ${company.displayName}`,
     company.city ? `Standort: ${company.city}` : null,
     "",
-    "FAHRZEUGDATEN (nur diese verwenden):",
+    "FAHRZEUGDATEN (nur diese verwenden, nichts ergänzen):",
     ...facts.map((fact) => `- ${fact}`),
     "",
     "STILREFERENZ (nur Stil und Aufbau, keine Fakten übernehmen):",

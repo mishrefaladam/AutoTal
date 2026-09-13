@@ -543,8 +543,10 @@ describe("Anbindung an Social Media", () => {
     assert.ok(!/fuel:/.test(service));
     assert.ok(!/transmission:/.test(service));
 
+    // Der Beitrag nennt seit der Kundenvorgabe nur Name, Kilometer, Baujahr
+    // und Leistung – Kraftstoff und Getriebe erreichen den Prompt gar nicht.
     const openai = readFileSync("src/integrations/openai/index.ts", "utf8");
-    assert.match(openai, /if \(vehicle\.fuel\) facts\.push/);
-    assert.match(openai, /if \(vehicle\.transmission\)/);
+    assert.ok(!/vehicle\.fuel/.test(openai));
+    assert.ok(!/vehicle\.transmission/.test(openai));
   });
 });

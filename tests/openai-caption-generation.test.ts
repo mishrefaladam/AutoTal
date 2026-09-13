@@ -84,7 +84,9 @@ describe("OpenAI-Prompt für Instagram-Captions", () => {
   it("fällt bei leerem oder fehlendem Beispieltext auf den Default zurück", () => {
     for (const exampleText of [undefined, null, "   "]) {
       const prompt = buildVehiclePrompt(VEHICLE, COMPANY, { exampleText });
-      assert.match(prompt, /BMW X5 40e \| M-Paket \| Hybrid/);
+      // Die Vorgabe ist die AutoTal-Vorlage mit Beispielwerten.
+      assert.match(prompt, /Herzlich willkommen bei Autotal!/);
+      assert.match(prompt, /Porsche Panamera 4S/);
     }
   });
 

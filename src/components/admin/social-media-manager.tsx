@@ -109,8 +109,6 @@ export function SocialMediaManager({
   filterOptions,
   defaultStatus,
   drafts,
-  openAiConfigured,
-  deploymentEnvironment,
   instagramConnected,
 }: {
   /** Fahrzeuge nach den aktuellen Filtern – Auswahl für den Textentwurf. */
@@ -122,8 +120,6 @@ export function SocialMediaManager({
   filterOptions: VehicleFilterOptions;
   defaultStatus: VehicleStatus;
   drafts: SocialDraftListItem[];
-  openAiConfigured: boolean;
-  deploymentEnvironment: string | null;
   instagramConnected: boolean;
 }) {
   const [chosenVehicleId, setChosenVehicleId] = useState<string>(
@@ -164,47 +160,8 @@ export function SocialMediaManager({
       {/* --- Schritt 1: Fahrzeug wählen und generieren ------------------- */}
       <AdminCard
         title="Neuen Beitrag erstellen"
-        description="Wählen Sie ein Fahrzeug aus dem Bestand. Die KI erstellt daraus einen Textvorschlag – veröffentlicht wird nichts automatisch."
+        description="Wählen Sie ein Fahrzeug aus dem Bestand. Der Text entsteht nach der AutoTal-Vorlage aus Name, Kilometern, Baujahr und Leistung – veröffentlicht wird nichts automatisch."
       >
-        {!openAiConfigured && (
-          <div className="border-border bg-muted/60 mb-5 flex gap-3 rounded-lg border p-4 text-sm">
-            <TriangleAlert
-              className="text-warning mt-0.5 size-4 shrink-0"
-              aria-hidden="true"
-            />
-            {/*
-             * Nur die Textvorschläge hängen am Schlüssel. Der Hinweis sagt das
-             * ausdrücklich, damit niemand die ganze Seite für kaputt hält.
-             */}
-            <p className="leading-relaxed">
-              Die KI-Textvorschläge sind nicht eingerichtet. Hinterlegen Sie{" "}
-              <code className="bg-background rounded px-1 py-0.5 text-xs">
-                OPENAI_API_KEY
-              </code>{" "}
-              in den Umgebungsvariablen, um Texte erzeugen zu lassen.
-              {/*
-               * Die Umgebung wird ausdrücklich genannt: Ein nur für Production
-               * hinterlegter Schlüssel greift auf einer Preview-Bereitstellung
-               * nicht – ohne diese Angabe sieht der Hinweis dort wie ein Fehler
-               * der Anwendung aus.
-               */}
-              {deploymentEnvironment && (
-                <>
-                  {" "}
-                  Diese Instanz läuft in der Umgebung{" "}
-                  <code className="bg-background rounded px-1 py-0.5 text-xs">
-                    {deploymentEnvironment}
-                  </code>
-                  ; dort muss die Variable gesetzt und danach neu bereitgestellt
-                  sein.
-                </>
-              )}{" "}
-              Bestehende Beiträge können Sie weiterhin bearbeiten, freigeben und
-              veröffentlichen.
-            </p>
-          </div>
-        )}
-
         {/*
           * Dieselbe Filterleiste wie in der Fahrzeugverwaltung, mit eigenem
           * Statusfeld: Vorgabe "Im Bestand", auf Wunsch auch reservierte,
@@ -320,7 +277,7 @@ export function SocialMediaManager({
               size="2xl"
               className="self-start"
               onClick={handleGenerate}
-              disabled={pending || !openAiConfigured || !selectedVehicleId}
+              disabled={pending || !selectedVehicleId}
             >
               {pending ? (
                 <Loader2

@@ -7,10 +7,7 @@ import {
   INSTAGRAM_PUBLISH_OUTCOME_UNKNOWN_MESSAGE,
   publishImagePost,
 } from "@/integrations/instagram";
-import {
-  generateInstagramCaption,
-  verifyCaptionFacts,
-} from "@/integrations/openai";
+import { verifyCaptionFacts } from "@/integrations/openai";
 import { logger } from "@/lib/logger";
 import { prisma } from "@/lib/prisma";
 import {
@@ -21,18 +18,27 @@ import {
   toActionResult,
 } from "@/lib/result";
 import { requireAdminForAction } from "@/modules/admin/auth";
-import { getCompany } from "@/modules/company/repository";
 import { toFieldErrors } from "@/modules/forms/schemas";
 import { getVehicleByIdIncludingInactive } from "@/modules/vehicles/repository";
 
+import {
+  CAPTION_TEMPLATE_ID,
+  buildInstagramCaption,
+  buildInstagramHashtags,
+} from "./caption";
+
 /**
- * Workflow für KI-gestützte Social-Media-Beiträge (EPIC 7, EPIC 8).
+ * Workflow für Social-Media-Beiträge (EPIC 7, EPIC 8).
  *
  *   Fahrzeug wählen -> Caption erzeugen -> bearbeiten -> freigeben -> veröffentlichen
  *
+ * Der Text entsteht aus der AutoTal-Vorlage (./caption.ts), nicht aus der KI:
+ * Nach Rücksprache mit dem Kunden ist er bis auf vier Fahrzeugwerte fest.
+ * Die OpenAI-Anbindung bleibt für andere Funktionen erhalten.
+ *
  * Zwei Regeln sind hier fest verdrahtet und nicht umgehbar:
  *
- *   1. Die KI veröffentlicht NIEMALS selbst. `generateCaption` schreibt
+ *   1. Es wird NIEMALS automatisch veröffentlicht. `generateCaption` schreibt
  *      ausschließlich einen Entwurf mit Status DRAFT. Es gibt keinen Pfad, der
  *      Generierung und Veröffentlichung in einem Schritt ausführt.
  *
@@ -74,15 +80,17 @@ export async function generateCaption(
       return fail("Dieses Fahrzeug wurde nicht gefunden.", { code: "NOT_FOUND" });
     }
 
-    const company = await getCompany();
+    // Vorlage statt KI: Name, Kilometer, Baujahr, PS – mehr braucht der
+    // Beitrag nicht, und mehr wird auch nicht gelesen. Fehlende Werte lassen
+    // ihre Zeile weg.
+    const generated = {
+      caption: buildInstagramCaption(vehicle),
+      hashtags: buildInstagramHashtags(vehicle),
+      model: CAPTION_TEMPLATE_ID,
+    };
 
-    const generated = await generateInstagramCaption(vehicle, {
-      displayName: company.displayName,
-      city: company.city,
-    });
-
-    // Faktenprüfung: Stimmen Preis und Kilometerstand im Text nicht mit den
-    // Fahrzeugdaten überein, wird der Entwurf gar nicht erst gespeichert.
+    // Faktenprüfung bleibt als Sicherheitsnetz: Sie prüft den Text gegen die
+    // Fahrzeugdaten, gleich woher er stammt.
     const issues = verifyCaptionFacts(generated.caption, vehicle);
 
     if (issues.length > 0) {

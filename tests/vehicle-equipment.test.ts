@@ -378,23 +378,23 @@ describe("Preisblatt", () => {
 // KI-Prompt
 // ---------------------------------------------------------------------------
 
-describe("KI-Prompt", () => {
+describe("Instagram-Text", () => {
+  // Die Ausstattung bleibt im Admin und am Fahrzeug vollständig erhalten.
+  // Der Instagram-Text nennt sie laut Kundenvorgabe aber nicht mehr – weder
+  // die Vorlage noch der (für später erhaltene) KI-Prompt lesen sie.
   const openai = readFileSync("src/integrations/openai/index.ts", "utf8");
+  const caption = readFileSync("src/modules/social/caption.ts", "utf8");
 
-  it("übergibt die Ausstattung vollständig, Highlights eingeschlossen", () => {
-    assert.match(openai, /const equipment = mergeEquipment\(vehicle\.features, vehicle\.highlights\)/);
-    assert.match(openai, /Ausstattung:\\n\$\{equipment\.map/);
-    assert.ok(!/Highlights: \$\{vehicle\.highlights/.test(openai));
+  it("nennt weder Ausstattung noch Highlights noch Extras", () => {
+    for (const source of [openai, caption]) {
+      assert.ok(!/vehicle\.features|vehicle\.highlights|vehicle\.extras/.test(source));
+      assert.ok(!/mergeEquipment/.test(source));
+    }
+    assert.match(openai, /keine Ausstattung, keine Extras/);
   });
 
-  it("lässt die KI fünf bis acht auswählen und nichts erfinden", () => {
-    assert.match(openai, /fünf bis acht verkaufsrelevante Ausstattungen/);
-    assert.match(openai, /ausschließlich tatsächlich vorhandene Ausstattung/);
-    assert.match(openai, /Vermeide Dubletten/);
-    assert.match(openai, /Fehlt Ausstattung vollständig, lasse den Block weg/);
-  });
-
-  it("hält Extras weiterhin getrennt", () => {
-    assert.match(openai, /Extras: \$\{vehicle\.extras\.join/);
+  it("kann deshalb auch keine Ausstattung erfinden", () => {
+    assert.match(openai, /Erfinde keine Ausstattung/);
+    assert.match(openai, /nur diese verwenden, nichts ergänzen/);
   });
 });
