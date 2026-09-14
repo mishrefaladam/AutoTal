@@ -171,7 +171,7 @@ Leistung: ${kwToPs(324)} PS
 • Österreichweite Zustellung gegen Aufpreis
 
 Weitere Details zum Fahrzeug:
-www.autotal.at`,
+👉 @autotal.at – Link in Bio`,
     );
   });
 
@@ -181,8 +181,21 @@ www.autotal.at`,
     assert.match(caption, /• Österreichweite Zustellung gegen Aufpreis/);
   });
 
-  it("schließt mit www.autotal.at", () => {
-    assert.ok(caption.endsWith("Weitere Details zum Fahrzeug:\nwww.autotal.at"));
+  it("schließt mit der anklickbaren Profil-Erwähnung, nicht mit der Adresse", () => {
+    // Instagram verlinkt eine geschriebene URL in der Beschreibung nicht –
+    // "@autotal.at" wird dagegen zur Erwähnung, die zum Profil führt.
+    assert.ok(caption.endsWith(AUTOTAL_CLOSING));
+    assert.match(caption, /👉 @autotal\.at – Link in Bio$/);
+    assert.match(caption, /@autotal\.at/);
+    assert.match(caption, /Link in Bio/);
+    assert.doesNotMatch(caption, /www\.autotal\.at/);
+  });
+
+  it("schreibt den Profilnamen exakt, ohne Leerzeichen nach dem @", () => {
+    // Ein Leerzeichen oder eine andere Form, und Instagram erkennt den Namen
+    // nicht mehr als Erwähnung.
+    assert.ok(caption.includes("@autotal.at"), "exakte Schreibweise");
+    assert.ok(!/@\s+autotal/.test(caption));
   });
 
   it("erfindet weder Ausstattung noch Extras, Preis oder Highlights", () => {

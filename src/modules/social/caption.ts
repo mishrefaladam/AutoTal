@@ -19,7 +19,7 @@ import { buildVehicleTitle } from "@/modules/vehicles/slug";
  *   • Österreichweite Zustellung gegen Aufpreis
  *
  *   Weitere Details zum Fahrzeug:
- *   www.autotal.at
+ *   👉 @autotal.at – Link in Bio
  *
  * WARUM KEINE KI: In diesem Text gibt es nichts zu formulieren. Jede Zeile ist
  * entweder fest oder ein Fahrzeugwert in fester Schreibweise. Ein Sprachmodell
@@ -46,7 +46,18 @@ export const AUTOTAL_SERVICE_LINES = [
   "• Österreichweite Zustellung gegen Aufpreis",
 ] as const;
 
-export const AUTOTAL_CLOSING = "Weitere Details zum Fahrzeug:\nwww.autotal.at";
+/**
+ * Fester Abschluss des Beitrags.
+ *
+ * Bewusst die Profil-Erwähnung statt der Adresse: Instagram macht aus einer
+ * geschriebenen URL in einer Beitragsbeschreibung keinen Link – sie steht dort
+ * als toter Text. Aus "@autotal.at" wird dagegen eine anklickbare Erwähnung,
+ * die zum Profil führt, und dort liegt der Link in der Bio. Die Schreibweise
+ * muss deshalb exakt so bleiben; ein Leerzeichen oder eine andere Form, und
+ * Instagram erkennt den Namen nicht mehr.
+ */
+export const AUTOTAL_CLOSING =
+  "Weitere Details zum Fahrzeug:\n👉 @autotal.at – Link in Bio";
 
 /** Kennung im Entwurf, an der sich Vorlage und KI-Text unterscheiden lassen. */
 export const CAPTION_TEMPLATE_ID = "AutoTal-Vorlage";
