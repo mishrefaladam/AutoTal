@@ -99,8 +99,10 @@ Instagram-Login überschreibt das alte Credential.
 ## Veröffentlichen
 
 Meta verlangt zwei Schritte über `graph.instagram.com`. Welche Bilder
-mitgehen, wählt der Händler am Entwurf aus (Vorgabe: das Titelbild); die
-Reihenfolge ist die der Fahrzeuggalerie.
+mitgehen, kann der Händler am Entwurf auswählen. Neue Entwürfe wählen alle
+formal kompatiblen JPEG-/HTTPS-Bilder in Galerie-Reihenfolge bis zum Limit
+aus (Position 0 zuerst, maximal 10). Die Auswahl bestehender Entwürfe bleibt
+unverändert. Die tatsächliche Erreichbarkeit wird weiterhin vor Publishing geprüft.
 
 **Ein Bild** (`publishInstagramImage`):
 
@@ -111,9 +113,12 @@ Reihenfolge ist die der Fahrzeuggalerie.
 **Zwei bis zehn Bilder – Carousel** (`publishInstagramCarousel`):
 
 1. Je Bild `POST /{instagram-user-id}/media` mit `image_url` und
-   `is_carousel_item=true` – ohne Caption. Jeder Kind-Container wird bis
-   `FINISHED` abgewartet; `ERROR`/`EXPIRED` bricht mit "Bild 3 von 5" ab,
-   bevor irgendetwas veröffentlicht ist.
+   `is_carousel_item=true` – ohne Caption, maximal drei Anfragen gleichzeitig.
+   Die IDs bleiben trotz unterschiedlicher Antwortzeiten in Bildreihenfolge.
+   Danach gemeinsame Polling-Runden, ebenfalls mit maximal drei Anfragen:
+   nur offene Kinder prüfen, fertige entfernen, einmal pro Runde warten.
+   Erst wenn alle `FINISHED` melden, geht es weiter. `ERROR`/`EXPIRED`
+   bricht mit "Bild 3 von 5" ab, bevor ein Parent erstellt wird.
 2. `POST /{instagram-user-id}/media` mit `media_type=CAROUSEL`,
    `children=<ids>` und der `caption`; wieder Polling bis `FINISHED`.
 3. Genau ein `POST /{instagram-user-id}/media_publish` mit der
@@ -137,6 +142,64 @@ Randbedingungen (laut Meta-Dokumentation, Content Publishing):
   `media_publish` gespeichert; ein Entwurf mit `externalPostId` wird nie
   ein zweites Mal veröffentlicht, parallele Klicks blockiert eine Sperre am
   Entwurf. Ein Carousel wird nicht als halber Beitrag veröffentlicht.
+
+### Performance-Diagnose
+
+Vorher: Kind 1 erstellen und fertig abwarten, dann Kind 2 usw. Bei acht
+Kindern mit jeweils 9 Sekunden Polling-Wartezeit waren so allein 72 Sekunden
+künstliche Child-Wartezeit möglich. Jetzt reifen alle Kinder gemeinsam;
+die gleiche Polling-Sequenz wartet insgesamt 9 Sekunden statt achtmal 9.
+Creation-Anfragen laufen in einem Pool mit drei Workern. Das ist ein
+Ablaufvergleich, keine gemessene Meta-Produktionsdauer oder Zeitgarantie.
+Netzwerk, serielle HEAD-Vorprüfung, Parent und Meta-Verarbeitung kommen hinzu.
+
+`Instagram carousel timings` protokolliert pro Versuch `durationsMs` mit
+`quotaCheck`, `childCreation`, `childPolling`, `parentCreation`, `parentPolling`
+und `mediaPublish` sowie `totalMs`, Bildanzahl, Parallelität und Ergebnis.
+Auch abgebrochene Versuche protokollieren ihre bis dahin erreichten Phasen.
+`mediaPublish` enthält gegebenenfalls den bestehenden kontrollierten
+9007/2207027-Retry samt Statusprüfung. `totalMs` umfasst zusätzlich die
+Persistierung und Permalink-Abfrage, nicht die vorgeschaltete HEAD-Prüfung
+in der Server Action. Keine Tokens, Bild-URLs oder Caption in diesen Metriken.
+
+Der Admin zeigt während des Aufrufs einen mehrstufigen Ablauftext. Die Server
+Action liefert kein Live-Streaming; daher werden weder erfundene Prozentwerte
+noch ein scheinbar aktueller Bildzähler angezeigt. Freigabe, Einzelbild-Flow,
+Idempotenz und Reconcile bleiben unverändert. Keine neue Migration nötig.
+
+## Auf Instagram gelöschte Beiträge
+
+Löscht der Händler einen über AutoTal veröffentlichten Beitrag direkt in der
+Instagram-App, gleicht AutoTal den lokalen Zustand ab – nie umgekehrt: Es gibt
+bewusst keinen `DELETE /{media-id}`; Meta unterstützt das Löschen
+veröffentlichter Feed-Medien über die API nicht verlässlich.
+
+**Prüfung** (`getInstagramMediaExistence`): `GET /{media-id}?fields=id,permalink`.
+
+- Antwort OK → der Beitrag existiert, `externalCheckedAt` wird gesetzt.
+- HTTP 404, Code 100 mit Subcode 33 ("does not exist …") oder Code 803 →
+  zusätzlich `GET /me`. Antwortet Instagram dort, ist der Zugang in Ordnung und
+  der Beitrag fehlt wirklich → Status `DELETED_EXTERNALLY`. Scheitert `/me`,
+  bleibt der Ausgang unbekannt – Metas Meldung nennt "does not exist" und
+  "missing permissions" in einem Satz.
+- Token-/Berechtigungsfehler (401, Code 190, Code 200), Limits (429, Code 4,
+  Code 32), 5xx, Netzwerkfehler und alles Unbekannte → **keine** Änderung; die
+  Prüfung wird beim nächsten Mal wiederholt.
+
+**Wann:** Beim Öffnen von `/admin/social-media` (nur mit verbundenem Konto),
+je Beitrag frühestens 10 Minuten nach der Veröffentlichung und danach höchstens
+alle 30 Minuten, höchstens 20 Anfragen je Aufruf, neueste zuerst; bei Zugangs-
+oder Limitproblemen bricht der Durchlauf ab. Zusätzlich sofort per
+„Instagram-Status prüfen“ am Beitrag.
+
+**Erneut veröffentlichen** (`republishDeletedDraft`): nur aus
+`DELETED_EXTERNALLY`. Die Löschung wird bei Instagram noch einmal bestätigt,
+dann wandert die alte Media-ID nach `previousExternalPostIds`, der Entwurf
+fällt auf `APPROVED` zurück und geht den normalen Weg über `publishDraft` –
+mit Sperre und sofortiger Speicherung der neuen `externalPostId`. Ein
+`PUBLISHED`-Beitrag bleibt durch seine `externalPostId` weiterhin gegen jede
+zweite Veröffentlichung gesperrt; Bearbeiten, Freigeben und direktes
+Veröffentlichen eines extern gelöschten Beitrags werden abgewiesen.
 
 ## Freigabe und Fehler
 

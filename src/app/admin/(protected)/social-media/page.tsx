@@ -3,6 +3,7 @@ import type { Metadata } from "next";
 import { AdminPageHeader } from "@/components/admin/admin-page-header";
 import { SocialMediaManager } from "@/components/admin/social-media-manager";
 import { getInstagramConnection } from "@/integrations/instagram";
+import { reconcilePublishedDrafts } from "@/modules/social/reconcile";
 import {
   listSocialDrafts,
   listVehiclesForSocial,
@@ -33,10 +34,19 @@ export default async function AdminSocialMediaPage({
     parseVehicleFilters(await searchParams, { defaultStatus: DEFAULT_STATUS }),
   );
 
-  const [vehicleSelection, drafts, connection] = await Promise.all([
+  const connection = await getInstagramConnection();
+
+  // Erst der Abgleich, dann die Liste – sonst zeigte sie einen Beitrag als
+  // veröffentlicht, der auf Instagram längst gelöscht ist. Gedrosselt: je
+  // Beitrag höchstens alle 30 Minuten, je Aufruf höchstens 20 Anfragen,
+  // ohne verbundenes Konto gar keine.
+  if (connection.connected) {
+    await reconcilePublishedDrafts();
+  }
+
+  const [vehicleSelection, drafts] = await Promise.all([
     listVehiclesForSocial(filters),
     listSocialDrafts(),
-    getInstagramConnection(),
   ]);
 
   return (

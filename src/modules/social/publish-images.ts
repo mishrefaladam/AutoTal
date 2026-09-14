@@ -23,6 +23,18 @@ import {
 
 export const INSTAGRAM_MAX_IMAGES = INSTAGRAM_CAROUSEL_MAX_ITEMS;
 
+/** Only for new drafts; never expand an existing saved selection. */
+export function defaultInstagramImages(
+  images: readonly { url: string; position: number }[],
+): string[] {
+  return [...new Set(
+    [...images]
+      .sort((a, b) => a.position - b.position)
+      .filter((image) => instagramImageProblem(image.url) === null)
+      .map((image) => image.url),
+  )].slice(0, INSTAGRAM_MAX_IMAGES);
+}
+
 /** Ausgewählte Bilder in Galerie-Reihenfolge; Gelöschtes fällt weg. */
 export function orderSelectedImages(
   selectedUrls: readonly string[],

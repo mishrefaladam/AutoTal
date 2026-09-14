@@ -32,6 +32,8 @@ export const INSTAGRAM_CONTAINER_POLL_DELAYS_MS = [
 
 const INSTAGRAM_PUBLISH_RETRY_POLL_DELAYS_MS = [1_000, 1_500, 1_500] as const;
 
+export const INSTAGRAM_CHILD_CONCURRENCY = 3;
+
 export { INSTAGRAM_CAROUSEL_MAX_ITEMS, INSTAGRAM_CAROUSEL_MIN_ITEMS } from "./limits";
 
 const INSTAGRAM_OAUTH_URL = "https://www.instagram.com/oauth/authorize";
@@ -641,6 +643,74 @@ type ContainerPollingOptions = {
 const sleep = (milliseconds: number) =>
   new Promise<void>((resolve) => setTimeout(resolve, milliseconds));
 
+/** Drain in-flight requests on failure and stop scheduling new ones. */
+async function mapChildren<T, R>(
+  values: readonly T[],
+  operation: (value: T, index: number) => Promise<R>,
+): Promise<R[]> {
+  const results = new Array<R>(values.length);
+  let next = 0;
+  let failed = false;
+  const workers = Array.from(
+    { length: Math.min(INSTAGRAM_CHILD_CONCURRENCY, values.length) },
+    async () => {
+      while (!failed && next < values.length) {
+        const index = next++;
+        try {
+          results[index] = await operation(values[index], index);
+        } catch (error) {
+          failed = true;
+          throw error;
+        }
+      }
+    },
+  );
+  const settled = await Promise.allSettled(workers);
+  const failure = settled.find((result) => result.status === "rejected");
+  if (failure?.status === "rejected") throw failure.reason;
+  return results;
+}
+
+async function waitForInstagramChildren(
+  childrenIds: readonly string[],
+  accessToken: string,
+  fetcher: Fetcher,
+  options: ContainerPollingOptions,
+): Promise<void> {
+  let pending = childrenIds.map((id, index) => ({ id, index }));
+  const wait = options.sleep ?? sleep;
+  const delays = options.delaysMs ?? INSTAGRAM_CONTAINER_POLL_DELAYS_MS;
+
+  for (const [round, delay] of delays.entries()) {
+    await wait(delay);
+    const results = await mapChildren(pending, async (child) => {
+      const container = await getInstagramContainerStatus(child.id, accessToken, fetcher);
+      logger.info("Instagram child container status", {
+        containerId: child.id,
+        imageIndex: child.index + 1,
+        round: round + 1,
+        statusCode: container.statusCode,
+      });
+      if (container.statusCode === "FINISHED") return null;
+      if (container.statusCode === "IN_PROGRESS") return child;
+      throw new UserFacingError(
+        `Instagram konnte Bild ${child.index + 1} von ${childrenIds.length} nicht verarbeiten. ` +
+          (container.statusCode === "EXPIRED"
+            ? "Der Mediencontainer ist abgelaufen. Bitte versuchen Sie es erneut."
+            : "Bitte prüfen Sie das Fahrzeugbild und versuchen Sie es erneut."),
+        "SERVICE_UNAVAILABLE",
+      );
+    });
+    pending = results.filter((child) => child !== null);
+    if (pending.length === 0) return;
+  }
+  throw new UserFacingError(
+    `Instagram verarbeitet Bild ${pending[0].index + 1} von ${childrenIds.length} noch. ` +
+      "Bitte versuchen Sie die Veröffentlichung in einem Moment erneut.",
+    "SERVICE_UNAVAILABLE",
+  );
+}
+
 export async function waitForInstagramContainer(
   containerId: string,
   accessToken: string,
@@ -803,6 +873,110 @@ export async function getInstagramMediaPermalink(
   );
 
   return response.permalink ?? null;
+}
+
+// ---------------------------------------------------------------------------
+// Existenzprüfung: Gibt es den veröffentlichten Beitrag noch?
+// ---------------------------------------------------------------------------
+
+export type InstagramMediaExistence =
+  /** Instagram kennt das Medium; es ist weiterhin online. */
+  | { state: "exists"; permalink: string | null }
+  /** Instagram meldet eindeutig: Dieses Objekt gibt es nicht mehr. */
+  | { state: "missing" }
+  /**
+   * Keine Aussage möglich – Zugang, Limit, Ausfall oder Unbekanntes. Der
+   * lokale Zustand darf sich daraus nicht ändern.
+   */
+  | {
+      state: "unknown";
+      reason: "unauthorized" | "rate-limited" | "unavailable" | "network" | "unknown";
+      message: string;
+    };
+
+/**
+ * Metas Kennzeichen für ein nicht (mehr) vorhandenes Objekt beim GET auf eine
+ * Media-ID: HTTP 404, Code 100 mit Subcode 33 ("Unsupported get request.
+ * Object with ID … does not exist, cannot be loaded due to missing
+ * permissions, or does not support this operation") oder Code 803 ("Some of
+ * the aliases you requested do not exist").
+ */
+function isMediaNotFoundError(error: InstagramApiRequestError): boolean {
+  if (error.status === 404) return true;
+  if (error.apiCode === 100 && error.errorSubcode === 33) return true;
+  return error.apiCode === 803;
+}
+
+/**
+ * Prüft, ob ein veröffentlichter Beitrag auf Instagram noch existiert.
+ *
+ * NUR LESEN: Ein einzelner GET auf die Media-ID mit den Feldern id und
+ * permalink. Es gibt bewusst keine Funktion, die ein Medium über die API
+ * löscht – Meta unterstützt das für veröffentlichte Feed-Beiträge nicht
+ * verlässlich; gelöscht wird in der Instagram-App, AutoTal gleicht nur ab.
+ *
+ * NICHT VERWECHSELN: Metas "does not exist"-Meldung nennt in einem Atemzug
+ * auch "missing permissions". Damit ein abgelaufener Zugang nicht als
+ * Löschung durchgeht, wird bei dieser Meldung zusätzlich /me abgefragt:
+ * Antwortet Instagram dort, ist das Token in Ordnung und das Medium fehlt
+ * tatsächlich. Antwortet es nicht, bleibt der Ausgang unbekannt. Jeder
+ * andere Fehler – Zugang, Limit, 5xx, Netz – ist ebenfalls "unbekannt".
+ */
+export async function getInstagramMediaExistence(
+  mediaId: string,
+  accessToken: string,
+  fetcher: Fetcher = fetch,
+): Promise<InstagramMediaExistence> {
+  try {
+    const media = await graphRequest<{ id?: string | number; permalink?: string }>(
+      `/${mediaId}`,
+      accessToken,
+      { fields: "id,permalink" },
+      "GET",
+      fetcher,
+    );
+    return { state: "exists", permalink: media.permalink ?? null };
+  } catch (error) {
+    if (error instanceof InstagramApiRequestError) {
+      if (isMediaNotFoundError(error)) {
+        try {
+          await getInstagramProfile(accessToken, fetcher);
+        } catch {
+          return {
+            state: "unknown",
+            reason: "unauthorized",
+            message:
+              "Instagram hat den Beitrag nicht gefunden, aber auch der Zugang " +
+              "ließ sich nicht bestätigen. Bitte prüfen Sie die Verbindung unter " +
+              "\u201eIntegrationen\u201c.",
+          };
+        }
+        return { state: "missing" };
+      }
+
+      if (error.code === "UNAUTHORIZED") {
+        return { state: "unknown", reason: "unauthorized", message: error.message };
+      }
+      if (error.code === "RATE_LIMITED") {
+        return { state: "unknown", reason: "rate-limited", message: error.message };
+      }
+      if (error.status >= 500) {
+        return { state: "unknown", reason: "unavailable", message: error.message };
+      }
+      return { state: "unknown", reason: "unknown", message: error.message };
+    }
+
+    if (error instanceof UserFacingError) {
+      // Aus requestJson: Netzwerk oder Zeitüberschreitung.
+      return { state: "unknown", reason: "network", message: error.message };
+    }
+
+    return {
+      state: "unknown",
+      reason: "unknown",
+      message: "Der Instagram-Status konnte nicht geprüft werden. Bitte versuchen Sie es erneut.",
+    };
+  }
 }
 
 /**
@@ -1035,49 +1209,85 @@ export async function publishInstagramCarousel(
     );
   }
 
-  await assertPublishingLimitNotReached(accountId, accessToken, fetcher);
+  const startedAt = performance.now();
+  const durationsMs: Record<string, number> = {};
+  let outcome = "failed";
+  async function measure<T>(phase: string, operation: () => Promise<T>): Promise<T> {
+    const start = performance.now();
+    try {
+      return await operation();
+    } finally {
+      durationsMs[phase] = Math.round(performance.now() - start);
+    }
+  }
 
-  // Kinder nacheinander: Instagram verarbeitet sie ohnehin einzeln, und so
-  // benennt ein Fehler eindeutig das betroffene Bild.
-  const childrenIds: string[] = [];
-  for (const [index, imageUrl] of imageUrls.entries()) {
-    const mediaLabel = `Bild ${index + 1} von ${imageUrls.length}`;
-    const childId = await createInstagramCarouselItemContainer(
-      accountId,
-      accessToken,
-      { imageUrl },
-      fetcher,
+  try {
+    await measure("quotaCheck", () =>
+      assertPublishingLimitNotReached(accountId, accessToken, fetcher),
     );
-    await waitForInstagramContainer(childId, accessToken, fetcher, {
-      delaysMs: options.delaysMs,
-      sleep: options.sleep,
-      mediaLabel,
+    const childrenIds = await measure("childCreation", () =>
+      mapChildren(imageUrls, async (imageUrl, index) => {
+        try {
+          return await createInstagramCarouselItemContainer(
+            accountId, accessToken, { imageUrl }, fetcher,
+          );
+        } catch (error) {
+          // Ein Bildproblem beim Anlegen heißt wie beim Polling beim Namen:
+          // "Bild 3 von 5" – Zugangs- und Limitfehler bleiben unverändert.
+          if (
+            error instanceof InstagramApiRequestError &&
+            (error.apiCode === 9004 || error.apiCode === 2207052)
+          ) {
+            throw new UserFacingError(
+              `Instagram konnte Bild ${index + 1} von ${imageUrls.length} nicht laden. ` +
+                "Es muss unter einer öffentlich erreichbaren Adresse liegen, im Format " +
+                "JPEG vorliegen und darf höchstens 8 MB groß sein.",
+              "SERVICE_UNAVAILABLE",
+            );
+          }
+          throw error;
+        }
+      }),
+    );
+    await measure("childPolling", () =>
+      waitForInstagramChildren(childrenIds, accessToken, fetcher, options),
+    );
+    const carouselId = await measure("parentCreation", () =>
+      createInstagramCarouselContainer(
+        accountId, accessToken, { childrenIds, caption: input.caption }, fetcher,
+      ),
+    );
+    const carouselState = await measure("parentPolling", () =>
+      waitForInstagramContainer(carouselId, accessToken, fetcher, {
+        ...options,
+        mediaLabel: "das Carousel",
+      }),
+    );
+    if (carouselState === "PUBLISHED") {
+      outcome = "alreadyPublished";
+      return { postId: null, permalink: null, alreadyPublished: true };
+    }
+
+    const published = await measure("mediaPublish", () =>
+      publishContainerWithRetry(accountId, accessToken, carouselId, fetcher, {
+        ...options,
+        mediaLabel: "das Carousel",
+      }),
+    );
+    if (published.alreadyPublished) {
+      outcome = "alreadyPublished";
+      return { postId: null, permalink: null, alreadyPublished: true };
+    }
+    const result = await persistAndResolve(published.postId, carouselId, accessToken, fetcher, options);
+    outcome = "published";
+    return result;
+  } finally {
+    logger.info("Instagram carousel timings", {
+      imageCount: imageUrls.length,
+      concurrency: INSTAGRAM_CHILD_CONCURRENCY,
+      durationsMs,
+      totalMs: Math.round(performance.now() - startedAt),
+      outcome,
     });
-    childrenIds.push(childId);
   }
-
-  const carouselId = await createInstagramCarouselContainer(
-    accountId,
-    accessToken,
-    { childrenIds, caption: input.caption },
-    fetcher,
-  );
-  const carouselState = await waitForInstagramContainer(carouselId, accessToken, fetcher, {
-    delaysMs: options.delaysMs,
-    sleep: options.sleep,
-    mediaLabel: "das Carousel",
-  });
-  if (carouselState === "PUBLISHED") {
-    return { postId: null, permalink: null, alreadyPublished: true };
-  }
-
-  const published = await publishContainerWithRetry(accountId, accessToken, carouselId, fetcher, {
-    ...options,
-    mediaLabel: "das Carousel",
-  });
-  if (published.alreadyPublished) {
-    return { postId: null, permalink: null, alreadyPublished: true };
-  }
-
-  return persistAndResolve(published.postId, carouselId, accessToken, fetcher, options);
 }

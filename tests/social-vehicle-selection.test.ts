@@ -76,7 +76,7 @@ describe("Textentwurf ohne Bild", () => {
   it("erzeugt den Entwurf aus den Fahrzeugdaten, nicht aus Bildern", () => {
     // Kein Abbruch wegen fehlender Bilder – nur die vorhandenen werden
     // übernommen.
-    assert.match(generate, /imageUrls:\s*vehicle\.images\.slice\(0,\s*1\)/);
+    assert.match(generate, /imageUrls:\s*defaultInstagramImages\(/);
     assert.ok(!/kein Bild/i.test(generate));
   });
 

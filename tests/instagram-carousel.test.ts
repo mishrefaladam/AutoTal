@@ -8,12 +8,14 @@ import {
 } from "@/integrations/instagram/limits";
 import {
   InstagramPublishOutcomeUnknownError,
+  INSTAGRAM_CHILD_CONCURRENCY,
   publishInstagramCarousel,
   publishInstagramImage,
 } from "@/integrations/instagram/protocol";
 import { UserFacingError } from "@/lib/result";
 import {
   INSTAGRAM_MAX_IMAGES,
+  defaultInstagramImages,
   instagramImageProblem,
   orderSelectedImages,
   planInstagramImages,
@@ -103,6 +105,8 @@ function happyCarousel(n: number, mediaId = "published-media-id"): MockResponse[
   const responses: MockResponse[] = [{ body: {} }]; // content_publishing_limit
   for (let i = 0; i < n; i += 1) {
     responses.push({ body: { id: `child-${i + 1}` } });
+  }
+  for (let i = 0; i < n; i += 1) {
     responses.push({ body: { status_code: "FINISHED" } });
   }
   responses.push({ body: { id: "carousel-id" } });
@@ -127,6 +131,42 @@ function carouselInput(urls: readonly string[], extra: Record<string, unknown> =
 // ---------------------------------------------------------------------------
 
 describe("Bildplan", () => {
+  for (const count of [0, 1, 8, 12]) {
+    it(`wählt für einen neuen Draft ${Math.min(count, INSTAGRAM_MAX_IMAGES)} von ${count} Bildern`, () => {
+      const images = Array.from({ length: count }, (_, position) => ({
+        position, url: `https://cdn.example/${position}.jpg`,
+      }));
+      const reversed = [...images].reverse();
+      const selection = defaultInstagramImages(reversed);
+      assert.deepEqual(selection, images.slice(0, INSTAGRAM_MAX_IMAGES).map((i) => i.url));
+      assert.deepEqual(reversed, [...images].reverse(), "input not mutated");
+      if (count) {
+        const plan = planInstagramImages(selection, images.map((i) => i.url));
+        assert.ok(plan.ok);
+        assert.equal(plan.mode, count === 1 ? "single" : "carousel");
+      }
+    });
+  }
+
+  it("filtert inkompatible Bilder vor dem Limit und entfernt Duplikate", () => {
+    const images = ["http://cdn.example/a.jpg", "https://cdn.example/a.png",
+      "https://localhost/a.jpg", ...URLS, URLS[0]];
+    assert.deepEqual(defaultInstagramImages(images.map((url, position) => ({ url, position }))), URLS);
+  });
+
+  it("wendet die neue Vorauswahl nur beim Erstellen an, nicht auf bestehende Drafts", () => {
+    const actions = readFileSync("src/modules/social/actions.ts", "utf8");
+    assert.equal(actions.match(/defaultInstagramImages\(/g)?.length, 1);
+    const create = actions.slice(actions.indexOf("prisma.socialDraft.create("), actions.indexOf('logger.info("Social-Entwurf erzeugt"'));
+    assert.match(create, /defaultInstagramImages\(/);
+    assert.match(create, /status: "DRAFT"/);
+    const saved = [URLS[2]];
+    assert.deepEqual(orderSelectedImages(saved, URLS), saved);
+    const mapper = readFileSync("src/modules/vehicles/mappers.ts", "utf8");
+    assert.match(mapper, /sort\(\(a, b\) => a.position - b.position\)/);
+    assert.match(mapper, /images: sorted.map/);
+  });
+
   it("nimmt die Grenze aus der Instagram-Dokumentation: 10 Elemente je Carousel", () => {
     assert.equal(INSTAGRAM_CAROUSEL_MAX_ITEMS, 10);
     assert.equal(INSTAGRAM_CAROUSEL_MIN_ITEMS, 2);
@@ -196,6 +236,137 @@ describe("Bildplan", () => {
 // ---------------------------------------------------------------------------
 
 describe("Carousel-Protokoll", () => {
+  it("stoppt bei Creation-Fehlern den Pool und wartet laufende Requests ab", async () => {
+    await withMutedConsole(async () => {
+      let started = 0;
+      let completed = 0;
+      const fetcher = (async (input: string | URL | Request) => {
+        const url = new URL(input instanceof Request ? input.url : input.toString());
+        if (url.pathname.endsWith("/content_publishing_limit")) return new Response("{}");
+        assert.ok(url.pathname.endsWith("/media"), "no polling or publishing after failure");
+        const index = started++;
+        if (index === 0) return new Response(JSON.stringify({
+          error: { code: 200, message: "Permissions error" },
+        }), { status: 400 });
+        await new Promise((resolve) => setTimeout(resolve, 20));
+        completed++;
+        return new Response(JSON.stringify({ id: `child-${index}` }));
+      }) as typeof fetch;
+      await assert.rejects(publishInstagramCarousel(carouselInput(URLS), fetcher, FAST));
+      assert.equal(started, INSTAGRAM_CHILD_CONCURRENCY);
+      assert.equal(completed, INSTAGRAM_CHILD_CONCURRENCY - 1, "all in-flight calls drained before returning");
+    });
+  });
+
+  it("erstellt und pollt 8 Children mit maximal 3 parallelen Requests trotz anderer Antwortreihenfolge", async () => {
+    await withMutedConsole(async () => {
+      const urls = Array.from({ length: 8 }, (_, i) => `https://cdn.example/${i}.jpg`);
+      let creating = 0;
+      let polling = 0;
+      let maxCreating = 0;
+      let maxPolling = 0;
+      let publishCount = 0;
+      let parentCount = 0;
+      const finishedCreation: number[] = [];
+      const polls = new Map<string, number>();
+      const sleeps: number[] = [];
+      const fetcher = (async (input: string | URL | Request, init: RequestInit = {}) => {
+        const url = new URL(input instanceof Request ? input.url : input.toString());
+        const body = new URLSearchParams(String(init.body ?? ""));
+        const path = url.pathname.split("/").pop()!;
+        let result: object = {};
+        if (path === "media" && body.has("image_url")) {
+          const index = urls.indexOf(body.get("image_url")!);
+          assert.ok(index >= 0);
+          assert.equal(body.has("caption"), false);
+          maxCreating = Math.max(maxCreating, ++creating);
+          await new Promise((resolve) => setTimeout(resolve, index === 0 ? 20 : 1));
+          creating--;
+          finishedCreation.push(index);
+          result = { id: `child-${index}` };
+        } else if (path.startsWith("child-")) {
+          assert.equal(finishedCreation.length, 8);
+          maxPolling = Math.max(maxPolling, ++polling);
+          await new Promise((resolve) => setTimeout(resolve, 1));
+          polling--;
+          const count = (polls.get(path) ?? 0) + 1;
+          polls.set(path, count);
+          result = { status_code: path === "child-0" && count < 3 ? "IN_PROGRESS" : "FINISHED" };
+        } else if (path === "media") {
+          parentCount++;
+          assert.equal(polling, 0);
+          assert.equal(polls.size, 8);
+          assert.equal(polls.get("child-0"), 3);
+          assert.equal(body.get("children"), urls.map((_, i) => `child-${i}`).join(","));
+          assert.equal(body.get("caption"), carouselInput(urls).caption);
+          result = { id: "parent" };
+        } else if (path === "parent") {
+          result = { status_code: "FINISHED" };
+        } else if (path === "media_publish") {
+          publishCount++;
+          assert.equal(body.get("creation_id"), "parent");
+          result = { id: "post" };
+        } else if (path === "post") {
+          result = { permalink: "https://www.instagram.com/p/example/" };
+        } else {
+          assert.equal(path, "content_publishing_limit");
+        }
+        return new Response(JSON.stringify(result), { status: 200 });
+      }) as typeof fetch;
+      const result = await publishInstagramCarousel(carouselInput(urls), fetcher, {
+        delaysMs: [0, 2, 4],
+        sleep: async (ms) => { sleeps.push(ms); },
+      });
+      assert.equal(result.postId, "post");
+      assert.equal(maxCreating, INSTAGRAM_CHILD_CONCURRENCY);
+      assert.equal(maxPolling, INSTAGRAM_CHILD_CONCURRENCY);
+      assert.equal(INSTAGRAM_CHILD_CONCURRENCY, 3);
+      assert.notDeepEqual(finishedCreation, urls.map((_, i) => i));
+      for (let i = 1; i < 8; i++) assert.equal(polls.get(`child-${i}`), 1);
+      assert.deepEqual(sleeps, [0, 2, 4, 0]);
+      assert.equal(parentCount, 1);
+      assert.equal(publishCount, 1);
+    });
+  });
+
+  it("nennt beim Anlegen eines Kindes die Position, wenn Instagram das Bild nicht laden kann", async () => {
+    await withMutedConsole(async () => {
+      const { fetcher, calls } = createFetchSequence([
+        { body: {} },
+        { body: { id: "child-1" } },
+        {
+          status: 400,
+          body: {
+            error: { type: "IGApiException", code: 9004, message: "Media could not be fetched", fbtrace_id: "t" },
+          },
+        },
+      ]);
+      await assert.rejects(
+        publishInstagramCarousel(carouselInput(URLS.slice(0, 2)), fetcher, {
+          ...FAST,
+          // Ein Aufruf nach dem anderen, damit die Antwortfolge feststeht.
+        }),
+        (error: unknown) =>
+          error instanceof UserFacingError &&
+          error.message.startsWith("Instagram konnte Bild 2 von 2 nicht laden."),
+      );
+      assert.equal(publishCalls(calls).length, 0);
+      assert.equal(mediaCalls(calls).length, 2);
+    });
+  });
+
+  it("bricht nach gemeinsamem Polling-Timeout ohne Parent ab", async () => {
+    await withMutedConsole(async () => {
+      const { fetcher, calls } = createFetchSequence([
+        { body: {} }, { body: { id: "child-1" } }, { body: { id: "child-2" } },
+        { body: { status_code: "FINISHED" } }, { body: { status_code: "IN_PROGRESS" } },
+      ]);
+      await assert.rejects(publishInstagramCarousel(carouselInput(URLS.slice(0, 2)), fetcher, FAST), /verarbeitet Bild 2 von 2 noch/);
+      assert.equal(mediaCalls(calls).length, 2);
+      assert.equal(publishCalls(calls).length, 0);
+    });
+  });
+
   it("erstellt je Bild ein Kind mit is_carousel_item, ohne Caption, in Reihenfolge", async () => {
     await withMutedConsole(async () => {
       const { fetcher, calls } = createFetchSequence(happyCarousel(5));
@@ -215,78 +386,55 @@ describe("Carousel-Protokoll", () => {
     });
   });
 
-  it("wartet je Kind auf FINISHED, bevor das nächste erstellt wird", async () => {
+  it("pollt offene Kinder gemeinsam und fertige Kinder nicht erneut", async () => {
     await withMutedConsole(async () => {
       const { fetcher, calls } = createFetchSequence([
         { body: {} },
         { body: { id: "child-1" } },
-        { body: { status_code: "IN_PROGRESS" } },
+        { body: { id: "child-2" } },
         { body: { status_code: "IN_PROGRESS" } },
         { body: { status_code: "FINISHED" } },
-        { body: { id: "child-2" } },
+        { body: { status_code: "IN_PROGRESS" } },
         { body: { status_code: "FINISHED" } },
         { body: { id: "carousel-id" } },
         { body: { status_code: "FINISHED" } },
         { body: { id: "published-media-id" } },
         { body: { permalink: "https://www.instagram.com/p/example/" } },
       ]);
-
+      const waits: number[] = [];
       await publishInstagramCarousel(carouselInput(URLS.slice(0, 2)), fetcher, {
-        ...FAST,
-        delaysMs: [0, 0, 0],
+        delaysMs: [0, 2, 4],
+        sleep: async (ms) => { waits.push(ms); },
       });
-
-      const sequence = calls.map((c) => c.url.pathname.split("/").pop());
-      const child2 = sequence.indexOf("media", sequence.indexOf("media") + 1);
-      const lastPollChild1 = sequence.lastIndexOf("child-1");
-      assert.ok(lastPollChild1 < child2, "Kind 2 erst nach dem letzten Poll von Kind 1");
       assert.equal(calls.filter((c) => c.url.pathname.endsWith("/child-1")).length, 3);
+      assert.equal(calls.filter((c) => c.url.pathname.endsWith("/child-2")).length, 1);
+      assert.deepEqual(waits, [0, 2, 4, 0], "one sleep per child round plus parent");
+      assert.equal(publishCalls(calls).length, 1);
     });
   });
 
-  it("bricht bei ERROR eines Kindes ab: kein Carousel, kein media_publish, Position benannt", async () => {
-    await withMutedConsole(async () => {
-      const { fetcher, calls, remaining } = createFetchSequence([
-        { body: {} },
-        { body: { id: "child-1" } },
-        { body: { status_code: "FINISHED" } },
-        { body: { id: "child-2" } },
-        { body: { status_code: "FINISHED" } },
-        { body: { id: "child-3" } },
-        { body: { status_code: "ERROR", status: "Error: Media upload failed" } },
-        // Alles ab hier darf nicht mehr abgerufen werden.
-        { body: { id: "child-4-must-not-be-created" } },
-      ]);
-
-      await assert.rejects(
-        publishInstagramCarousel(carouselInput(URLS), fetcher, FAST),
-        (error: unknown) =>
-          error instanceof UserFacingError &&
-          error.message.startsWith("Instagram konnte Bild 3 von 5 nicht verarbeiten.") &&
-          !/Verbindung prüfen/.test(error.message),
-      );
-
-      assert.equal(publishCalls(calls).length, 0);
-      assert.equal(mediaCalls(calls).length, 3, "kein viertes Kind, kein Carousel-Container");
-      assert.equal(remaining(), 1);
-      assert.ok(!mediaCalls(calls).some((c) => c.params?.get("media_type") === "CAROUSEL"));
+  for (const state of ["ERROR", "EXPIRED", "PUBLISHED", "UNKNOWN"]) {
+    it(`bricht bei Child-Status ${state} ab: kein Parent, kein Publish`, async () => {
+      await withMutedConsole(async () => {
+        const { fetcher, calls } = createFetchSequence([
+          { body: {} },
+          ...URLS.map((_, i) => ({ body: { id: `child-${i + 1}` } })),
+          { body: { status_code: "FINISHED" } },
+          { body: { status_code: "FINISHED" } },
+          { body: { status_code: state } },
+          { body: { status_code: "FINISHED" } },
+          { body: { status_code: "FINISHED" } },
+        ]);
+        await assert.rejects(
+          publishInstagramCarousel(carouselInput(URLS), fetcher, FAST),
+          /Instagram konnte Bild 3 von 5 nicht verarbeiten/,
+        );
+        assert.equal(publishCalls(calls).length, 0);
+        assert.equal(mediaCalls(calls).length, 5);
+        assert.ok(!mediaCalls(calls).some((c) => c.params?.get("media_type") === "CAROUSEL"));
+      });
     });
-  });
-
-  it("bricht bei EXPIRED eines Kindes ebenso ab", async () => {
-    await withMutedConsole(async () => {
-      const { fetcher, calls } = createFetchSequence([
-        { body: {} },
-        { body: { id: "child-1" } },
-        { body: { status_code: "EXPIRED" } },
-      ]);
-      await assert.rejects(
-        publishInstagramCarousel(carouselInput(URLS.slice(0, 2)), fetcher, FAST),
-        /Mediencontainer für Bild 1 von 2 ist abgelaufen/,
-      );
-      assert.equal(publishCalls(calls).length, 0);
-    });
-  });
+  }
 
   it("erstellt den Carousel-Container mit media_type, children in Reihenfolge und der Caption", async () => {
     await withMutedConsole(async () => {
@@ -311,8 +459,8 @@ describe("Carousel-Protokoll", () => {
       const { fetcher, calls } = createFetchSequence([
         { body: {} },
         { body: { id: "child-1" } },
-        { body: { status_code: "FINISHED" } },
         { body: { id: "child-2" } },
+        { body: { status_code: "FINISHED" } },
         { body: { status_code: "FINISHED" } },
         { body: { id: "carousel-id" } },
         { body: { status_code: "IN_PROGRESS" } },
@@ -349,8 +497,8 @@ describe("Carousel-Protokoll", () => {
       const { fetcher, calls } = createFetchSequence([
         { body: {} },
         { body: { id: "child-1" } },
-        { body: { status_code: "FINISHED" } },
         { body: { id: "child-2" } },
+        { body: { status_code: "FINISHED" } },
         { body: { status_code: "FINISHED" } },
         { body: { id: "carousel-id" } },
         { body: { status_code: "FINISHED" } },
@@ -384,8 +532,8 @@ describe("Carousel-Protokoll", () => {
       const { fetcher, calls } = createFetchSequence([
         { body: {} },
         { body: { id: "child-1" } },
-        { body: { status_code: "FINISHED" } },
         { body: { id: "child-2" } },
+        { body: { status_code: "FINISHED" } },
         { body: { status_code: "FINISHED" } },
         { body: { id: "carousel-id" } },
         { body: { status_code: "FINISHED" } },
@@ -509,6 +657,22 @@ describe("Doppelpost-Schutz beim Carousel", () => {
 // ---------------------------------------------------------------------------
 
 describe("Vorprüfung und Logging", () => {
+  it("misst alle Carousel-Phasen ohne Tokens, Caption oder Bild-URLs", async () => {
+    const { fetcher } = createFetchSequence(happyCarousel(2));
+    const { output } = await captureConsole(() => publishInstagramCarousel(carouselInput(URLS.slice(0, 2)), fetcher, FAST));
+    const timing = output.split("\n").map((line) => JSON.parse(line)).find((entry) => entry.message === "Instagram carousel timings");
+    assert.ok(timing);
+    assert.equal(timing.context.outcome, "published");
+    for (const phase of ["quotaCheck", "childCreation", "childPolling", "parentCreation", "parentPolling", "mediaPublish"]) {
+      assert.equal(typeof timing.context.durationsMs[phase], "number");
+      assert.ok(timing.context.durationsMs[phase] >= 0);
+    }
+    assert.ok(timing.context.totalMs >= 0);
+    assert.ok(!output.includes(SECRET));
+    assert.ok(!output.includes(carouselInput(URLS).caption));
+    for (const url of URLS) assert.ok(!output.includes(url));
+  });
+
   it("prüft jede Bild-URL per HEAD und nennt die Position", () => {
     const actions = readFileSync("src/modules/social/actions.ts", "utf8");
     const reach = readFileSync("src/modules/social/image-reachability.ts", "utf8");
@@ -524,7 +688,9 @@ describe("Vorprüfung und Logging", () => {
     const { fetcher } = createFetchSequence([
       { body: {} },
       { body: { id: "child-1" } },
+      { body: { id: "child-2" } },
       { body: { status_code: "ERROR" } },
+      { body: { status_code: "FINISHED" } },
     ]);
 
     const { output } = await captureConsole(async () => {

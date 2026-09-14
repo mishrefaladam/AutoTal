@@ -753,8 +753,8 @@ describe("Anbindung an Social Media", () => {
     assert.match(openai, /Fehlt ein Wert, lasse die ganze Zeile weg/);
   });
 
-  it("verwendet das erste Bild des Fahrzeugs für den Entwurf", () => {
-    assert.match(socialActions, /imageUrls:\s*vehicle\.images\.slice\(0,\s*1\)/);
+  it("verwendet die kompatible Fahrzeuggalerie für neue Entwürfe", () => {
+    assert.match(socialActions, /imageUrls:\s*defaultInstagramImages\(/);
   });
 
   it("veröffentlicht weiterhin nichts automatisch", () => {

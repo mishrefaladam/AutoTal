@@ -5,6 +5,7 @@ import { z } from "zod";
 
 import {
   INSTAGRAM_PUBLISH_OUTCOME_UNKNOWN_MESSAGE,
+  checkInstagramMediaExists,
   publishImagePost,
 } from "@/integrations/instagram";
 import { verifyCaptionFacts } from "@/integrations/openai";
@@ -28,7 +29,12 @@ import {
 } from "./caption";
 import { imageUnreachable } from "./image-reachability";
 import {
+  EXTERNALLY_DELETED_NOTICE,
+  reconcilePublishedDraft,
+} from "./reconcile";
+import {
   INSTAGRAM_MAX_IMAGES,
+  defaultInstagramImages,
   orderSelectedImages,
   planInstagramImages,
 } from "./publish-images";
@@ -60,6 +66,23 @@ function revalidateSocial() {
 const INSTAGRAM_PUBLISH_IN_PROGRESS_MARKER =
   "__instagram_publish_in_progress__";
 const INSTAGRAM_PUBLISH_LOCK_TIMEOUT_MS = 2 * 60 * 1000;
+
+/**
+ * Ein auf Instagram gelöschter Beitrag trägt noch seine alte Media-ID – den
+ * Idempotenz-Schlüssel. Bearbeiten, Freigeben oder direktes Veröffentlichen
+ * würden ihn über den externalPostId-Kurzschluss als "veröffentlicht"
+ * wiederbeleben. Der einzige Weg zurück ist `republishDeletedDraft`, das
+ * die Löschung erneut bestätigt und die alte ID kontrolliert ablegt.
+ */
+const DELETED_EXTERNALLY_MESSAGE =
+  "Dieser Beitrag wurde auf Instagram gelöscht. Veröffentlichen Sie ihn über " +
+  "\u201eErneut veröffentlichen\u201c neu oder entfernen Sie ihn aus AutoTal.";
+
+function deletedExternally(status: string) {
+  return status === "DELETED_EXTERNALLY"
+    ? fail(DELETED_EXTERNALLY_MESSAGE, { code: "CONFLICT" })
+    : null;
+}
 
 // ---------------------------------------------------------------------------
 // US-19: Caption generieren
@@ -128,7 +151,10 @@ export async function generateCaption(
         status: "DRAFT",
         caption: generated.caption,
         hashtags: generated.hashtags,
-        imageUrls: vehicle.images.slice(0, 1).map((image) => image.url),
+        // Vehicle DTO images are already sorted by VehicleImage.position.
+        imageUrls: defaultInstagramImages(
+          vehicle.images.map((image, position) => ({ url: image.url, position })),
+        ),
         generatedByModel: generated.model,
         generatedAt: new Date(),
       },
@@ -219,6 +245,8 @@ export async function updateDraft(
         { code: "CONFLICT" },
       );
     }
+    const deleted = deletedExternally(draft.status);
+    if (deleted) return deleted;
 
     // Nur Bilder dieses Fahrzeugs – eine fremde URL hat hier nichts verloren.
     if (parsed.data.imageUrls) {
@@ -288,6 +316,8 @@ export async function approveDraft(
         code: "CONFLICT",
       });
     }
+    const deleted = deletedExternally(draft.status);
+    if (deleted) return deleted;
 
     await prisma.socialDraft.update({
       where: { id: draftId },
@@ -334,6 +364,8 @@ export async function revokeApproval(
         { code: "CONFLICT" },
       );
     }
+    const deleted = deletedExternally(draft.status);
+    if (deleted) return deleted;
 
     await prisma.socialDraft.update({
       where: { id: draftId },
@@ -389,6 +421,11 @@ export async function publishDraft(
     if (!draft) {
       return fail("Dieser Entwurf wurde nicht gefunden.", { code: "NOT_FOUND" });
     }
+
+    // Vor dem Kurzschluss: Ein extern gelöschter Beitrag hat noch seine alte
+    // Media-ID, darf aber nicht als "bereits veröffentlicht" gelten.
+    const deleted = deletedExternally(draft.status);
+    if (deleted) return deleted;
 
     // Eine bereits gespeicherte Instagram Media ID ist der dauerhafte
     // Idempotenz-Schluessel. Auch nach einem lokalen Folgefehler wird niemals
@@ -633,6 +670,9 @@ export async function retryPublish(
       return fail("Dieser Entwurf wurde nicht gefunden.", { code: "NOT_FOUND" });
     }
 
+    const deleted = deletedExternally(draft.status);
+    if (deleted) return deleted;
+
     if (draft.externalPostId) return publishDraft(draftId);
 
     if (draft.status !== "FAILED") {
@@ -678,6 +718,170 @@ export async function retryPublish(
   }
 }
 
+// ---------------------------------------------------------------------------
+// Abgleich mit Instagram: gelöschte Beiträge erkennen, erneut veröffentlichen
+// ---------------------------------------------------------------------------
+
+/**
+ * "Instagram-Status prüfen": sofortiger Abgleich eines einzelnen Beitrags,
+ * ohne die Drosselung des Seitenaufrufs. Nur ein eindeutiges "nicht
+ * vorhanden" ändert den Status; alles andere wird als Meldung zurückgegeben.
+ */
+export async function checkInstagramStatus(
+  draftId: string,
+): Promise<ActionResult<{ message: string; state: "published" | "deleted" }>> {
+  try {
+    await requireAdminForAction();
+
+    const draft = await prisma.socialDraft.findUnique({
+      where: { id: draftId },
+      select: { status: true, externalPostId: true, externalPermalink: true },
+    });
+
+    if (!draft) {
+      return fail("Dieser Entwurf wurde nicht gefunden.", { code: "NOT_FOUND" });
+    }
+    if (draft.status === "DELETED_EXTERNALLY") {
+      return ok({ message: EXTERNALLY_DELETED_NOTICE, state: "deleted" });
+    }
+    if (draft.status !== "PUBLISHED" || !draft.externalPostId) {
+      return fail("Nur veröffentlichte Beiträge lassen sich mit Instagram abgleichen.", {
+        code: "CONFLICT",
+      });
+    }
+
+    const outcome = await reconcilePublishedDraft({
+      id: draftId,
+      externalPostId: draft.externalPostId,
+      externalPermalink: draft.externalPermalink,
+    });
+    revalidateSocial();
+
+    if (outcome.state === "published") {
+      return ok({ message: "Der Beitrag ist weiterhin auf Instagram online.", state: "published" });
+    }
+    if (outcome.state === "deleted") {
+      return ok({ message: EXTERNALLY_DELETED_NOTICE, state: "deleted" });
+    }
+    return fail(outcome.message, {
+      code:
+        outcome.reason === "unauthorized"
+          ? "UNAUTHORIZED"
+          : outcome.reason === "rate-limited"
+            ? "RATE_LIMITED"
+            : "SERVICE_UNAVAILABLE",
+    });
+  } catch (error) {
+    return toActionResult(error);
+  }
+}
+
+/**
+ * Erneut veröffentlichen nach bestätigter Löschung auf Instagram.
+ *
+ * DOPPELPOST-SCHUTZ: Die alte Media-ID blockiert jede Veröffentlichung, bis
+ * zweierlei feststeht – der Beitrag steht lokal auf DELETED_EXTERNALLY, und
+ * Instagram bestätigt in diesem Moment noch einmal, dass das Medium fehlt.
+ * Erst dann wandert die alte ID nach `previousExternalPostIds` (nichts geht
+ * verloren), der Entwurf fällt auf APPROVED zurück – die Freigabe des
+ * unveränderten Textes gilt weiter – und `publishDraft` läuft den normalen
+ * Weg mit Sperre und sofortiger Persistierung der neuen ID.
+ *
+ * Meldet Instagram, der Beitrag existiere doch, wird er wieder PUBLISHED.
+ */
+export async function republishDeletedDraft(
+  draftId: string,
+): Promise<ActionResult<{ message: string; permalink: string | null }>> {
+  try {
+    const admin = await requireAdminForAction();
+
+    const draft = await prisma.socialDraft.findUnique({
+      where: { id: draftId },
+      select: {
+        status: true,
+        approvedAt: true,
+        externalPostId: true,
+        externalPermalink: true,
+        previousExternalPostIds: true,
+      },
+    });
+
+    if (!draft) {
+      return fail("Dieser Entwurf wurde nicht gefunden.", { code: "NOT_FOUND" });
+    }
+    if (draft.status !== "DELETED_EXTERNALLY" || !draft.externalPostId) {
+      return fail(
+        "Erneut veröffentlichen ist nur für Beiträge möglich, die auf Instagram " +
+          "gelöscht wurden.",
+        { code: "CONFLICT" },
+      );
+    }
+    if (!draft.approvedAt) {
+      return fail(
+        "Dieser Beitrag wurde nie freigegeben. Bitte geben Sie ihn zuerst frei.",
+        { code: "CONFLICT" },
+      );
+    }
+
+    // Zweite Bestätigung – direkt vor dem Ablegen der alten ID.
+    const existence = await checkInstagramMediaExists(draft.externalPostId);
+    if (existence.state === "exists") {
+      await prisma.socialDraft.updateMany({
+        where: { id: draftId, status: "DELETED_EXTERNALLY", externalPostId: draft.externalPostId },
+        data: {
+          status: "PUBLISHED",
+          externalCheckedAt: new Date(),
+          ...(existence.permalink ? { externalPermalink: existence.permalink } : {}),
+        },
+      });
+      revalidateSocial();
+      return fail(
+        "Der Beitrag ist auf Instagram doch noch vorhanden und wurde wieder als " +
+          "veröffentlicht markiert.",
+        { code: "CONFLICT" },
+      );
+    }
+    if (existence.state === "unknown") {
+      return fail(existence.message, {
+        code:
+          existence.reason === "unauthorized"
+            ? "UNAUTHORIZED"
+            : existence.reason === "rate-limited"
+              ? "RATE_LIMITED"
+              : "SERVICE_UNAVAILABLE",
+      });
+    }
+
+    const released = await prisma.socialDraft.updateMany({
+      where: { id: draftId, status: "DELETED_EXTERNALLY", externalPostId: draft.externalPostId },
+      data: {
+        status: "APPROVED",
+        externalPostId: null,
+        externalPermalink: null,
+        externalCheckedAt: null,
+        previousExternalPostIds: [...draft.previousExternalPostIds, draft.externalPostId],
+        errorMessage: null,
+      },
+    });
+
+    if (released.count !== 1) {
+      return fail("Der Beitrag wurde inzwischen verändert. Bitte laden Sie die Seite neu.", {
+        code: "CONFLICT",
+      });
+    }
+
+    logger.info("Instagram-Beitrag zur erneuten Veröffentlichung freigegeben", {
+      draftId,
+      userId: admin.id,
+      previousPostId: draft.externalPostId,
+    });
+
+    return publishDraft(draftId);
+  } catch (error) {
+    return toActionResult(error);
+  }
+}
+
 export async function deleteDraft(
   draftId: string,
 ): Promise<ActionResult<{ message: string }>> {
@@ -702,7 +906,9 @@ export async function deleteDraft(
       message:
         draft.status === "PUBLISHED"
           ? "Der Eintrag wurde aus der Übersicht entfernt. Der Beitrag bleibt auf Instagram bestehen."
-          : "Der Entwurf wurde gelöscht.",
+          : draft.status === "DELETED_EXTERNALLY"
+            ? "Der Eintrag wurde aus AutoTal entfernt."
+            : "Der Entwurf wurde gelöscht.",
     });
   } catch (error) {
     return toActionResult(error);

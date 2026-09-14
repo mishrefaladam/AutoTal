@@ -126,14 +126,14 @@ describe("Galerie", () => {
 // ---------------------------------------------------------------------------
 
 describe("Social Media", () => {
-  it("verwendet das Titelbild als Vorgabe und bietet die übrigen zur Auswahl", () => {
+  it("wählt bei neuen Entwürfen die Galerie und behält den Legacy-Fallback", () => {
     const social = readFileSync("src/modules/social/repository.ts", "utf8");
     const socialActions = readFileSync("src/modules/social/actions.ts", "utf8");
     // Fahrzeugwahl: nur das Titelbild als Vorschau.
     assert.match(social, /orderBy: \{ position: "asc" \}, take: 1/);
-    // Entwurf: alle Bilder in Galerie-Reihenfolge, Titelbild vorausgewählt.
+    // Neue Entwürfe erhalten die kompatible Galerie; bestehende bleiben unverändert.
     assert.match(social, /images: \{ orderBy: \{ position: "asc" \}, select: \{ url: true \} \}/);
-    assert.match(socialActions, /vehicle\.images\.slice\(0, 1\)/);
+    assert.match(socialActions, /imageUrls:\s*defaultInstagramImages\(/);
     assert.match(socialActions, /galleryUrls\.slice\(0, 1\)/);
   });
 });

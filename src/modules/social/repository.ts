@@ -21,6 +21,8 @@ export type SocialDraftListItem = {
   approvedByUser: string | null;
   publishedAt: Date | null;
   externalPermalink: string | null;
+  /** Letzter Abgleich mit Instagram; null = noch nie geprüft. */
+  externalCheckedAt: Date | null;
   errorMessage: string | null;
   retryCount: number;
   lastAttemptAt: Date | null;
@@ -70,6 +72,8 @@ type DraftWithVehicle = {
   approvedByUser: string | null;
   publishedAt: Date | null;
   externalPermalink: string | null;
+  /** Letzter Abgleich mit Instagram; null = noch nie geprüft. */
+  externalCheckedAt: Date | null;
   errorMessage: string | null;
   retryCount: number;
   lastAttemptAt: Date | null;
@@ -101,6 +105,7 @@ function toListItem(draft: DraftWithVehicle): SocialDraftListItem {
     approvedByUser: draft.approvedByUser,
     publishedAt: draft.publishedAt,
     externalPermalink: draft.externalPermalink,
+    externalCheckedAt: draft.externalCheckedAt,
     errorMessage: draft.errorMessage,
     retryCount: draft.retryCount,
     lastAttemptAt: draft.lastAttemptAt,
@@ -248,4 +253,5 @@ export const SOCIAL_STATUS_LABELS: Record<SocialDraftStatus, string> = {
   APPROVED: "Freigegeben",
   PUBLISHED: "Veröffentlicht",
   FAILED: "Fehlgeschlagen",
+  DELETED_EXTERNALLY: "Auf Instagram gelöscht",
 };

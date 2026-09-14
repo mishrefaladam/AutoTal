@@ -6,11 +6,13 @@ import { useState, useTransition } from "react";
 import {
   Check,
   CircleCheck,
+  CloudOff,
   ExternalLink,
   ImageOff,
   Loader2,
   Pencil,
   Plus,
+  RefreshCw,
   RotateCcw,
   Send,
   Sparkles,
@@ -30,9 +32,11 @@ import { formatEuro, formatKilometers } from "@/lib/money";
 import { cn } from "@/lib/utils";
 import {
   approveDraft,
+  checkInstagramStatus,
   deleteDraft,
   generateCaption,
   publishDraft,
+  republishDeletedDraft,
   retryPublish,
   revokeApproval,
   updateDraft,
@@ -104,6 +108,10 @@ const STATUS_STYLES: Record<
   FAILED: {
     label: "Fehlgeschlagen",
     className: "bg-destructive/12 text-destructive",
+  },
+  DELETED_EXTERNALLY: {
+    label: "Auf Instagram gelöscht",
+    className: "bg-warning/12 text-warning",
   },
 };
 
@@ -487,9 +495,11 @@ function DraftCard({
   const [caption, setCaption] = useState(draft.caption);
   const [hashtags, setHashtags] = useState(draft.hashtags.join(" "));
   const [pending, startTransition] = useTransition();
+  const [publishing, setPublishing] = useState(false);
 
   const status = STATUS_STYLES[draft.status];
   const published = draft.status === "PUBLISHED";
+  const deletedExternally = draft.status === "DELETED_EXTERNALLY";
 
   /*
    * Bilder des Beitrags – dieselbe Regel wie in `publishDraft`: Die Galerie
@@ -584,8 +594,32 @@ function DraftCard({
         </Badge>
       </div>
 
+      {/*
+        * Auf Instagram gelöscht: nicht so tun, als wäre er noch online. Kein
+        * Link, kein "Veröffentlicht am" – stattdessen der Weg zurück.
+        */}
+      {deletedExternally && (
+        <div className="border-warning/40 bg-warning/8 mt-4 flex gap-3 rounded-lg border p-3.5 text-sm">
+          <CloudOff
+            className="text-warning mt-0.5 size-4 shrink-0"
+            aria-hidden="true"
+          />
+          <div>
+            <p className="leading-relaxed">
+              Der Beitrag wurde auf Instagram nicht mehr gefunden.
+            </p>
+            <p className="text-muted-foreground mt-1 text-xs">
+              {draft.publishedAt && `Veröffentlicht am ${formatDateTime(draft.publishedAt)}`}
+              {draft.externalCheckedAt &&
+                ` · geprüft ${formatDateTime(draft.externalCheckedAt)}`}
+              {" "}· Sie können ihn erneut veröffentlichen oder aus AutoTal entfernen.
+            </p>
+          </div>
+        </div>
+      )}
+
       {/* Ohne Bild bleibt der Beitrag ein Textentwurf. */}
-      {!hasImage && !published && (
+      {!hasImage && !published && !deletedExternally && (
         <div className="border-border bg-muted/60 mt-4 flex gap-3 rounded-lg border p-3.5 text-sm">
           <ImageOff
             className="text-warning mt-0.5 size-4 shrink-0"
@@ -737,9 +771,16 @@ function DraftCard({
       </div>
 
       {/* Aktionen */}
+      {publishing && (
+        <p role="status" className="text-muted-foreground mt-4 text-sm break-words">
+          {effectiveSelection.length > 1
+            ? "Instagram-Veröffentlichung läuft: Bilder vorbereiten, Carousel erstellen, Beitrag veröffentlichen."
+            : "Instagram-Veröffentlichung läuft: Bild vorbereiten, Beitrag veröffentlichen."}
+        </p>
+      )}
       {!editing && (
         <div className="border-border mt-5 flex flex-wrap items-center gap-2 border-t pt-4">
-          {!published && (
+          {!published && !deletedExternally && (
             <Button
               variant="outline"
               size="xl"
@@ -783,7 +824,14 @@ function DraftCard({
                       ? undefined
                       : "Bitte zuerst unter „Integrationen“ ein Instagram-Konto verbinden."
                 }
-                onClick={() => run(() => publishDraft(draft.id))}
+                onClick={() => run(async () => {
+                  setPublishing(true);
+                  try {
+                    return await publishDraft(draft.id);
+                  } finally {
+                    setPublishing(false);
+                  }
+                })}
               >
                 {pending ? (
                   <Loader2
@@ -831,6 +879,68 @@ function DraftCard({
             </Button>
           )}
 
+          {/*
+            * Abgleich auf Knopfdruck – ohne auf die gedrosselte Prüfung beim
+            * Seitenaufruf zu warten. Nur ein eindeutiges "nicht gefunden"
+            * von Instagram ändert den Status.
+            */}
+          {published && (
+            <Button
+              variant="outline"
+              size="xl"
+              disabled={pending || !instagramConnected}
+              title={
+                instagramConnected
+                  ? undefined
+                  : "Bitte zuerst unter „Integrationen“ ein Instagram-Konto verbinden."
+              }
+              onClick={() => run(() => checkInstagramStatus(draft.id))}
+            >
+              {pending ? (
+                <Loader2
+                  data-icon="inline-start"
+                  className="animate-spin"
+                  aria-hidden="true"
+                />
+              ) : (
+                <RefreshCw data-icon="inline-start" aria-hidden="true" />
+              )}
+              Instagram-Status prüfen
+            </Button>
+          )}
+
+          {/*
+            * Erneut veröffentlichen: Die Action bestätigt die Löschung bei
+            * Instagram noch einmal, legt die alte Media-ID ab und geht dann
+            * den normalen Veröffentlichungsweg – mit Sperre und neuer ID.
+            */}
+          {deletedExternally && (
+            <Button
+              variant="brand"
+              size="xl"
+              disabled={pending || !instagramConnected || !hasImage}
+              title={
+                !hasImage
+                  ? MISSING_IMAGE_NOTICE
+                  : instagramConnected
+                    ? undefined
+                    : "Bitte zuerst unter „Integrationen“ ein Instagram-Konto verbinden."
+              }
+              onClick={() => run(() => republishDeletedDraft(draft.id))}
+            >
+              {pending ? (
+                <Loader2
+                  data-icon="inline-start"
+                  className="animate-spin"
+                  aria-hidden="true"
+                />
+              ) : (
+                <Send data-icon="inline-start" aria-hidden="true" />
+              )}
+              Erneut veröffentlichen
+            </Button>
+          )}
+
           {published && draft.externalPermalink && (
             <Button asChild variant="outline" size="xl">
               <a
@@ -852,7 +962,7 @@ function DraftCard({
             onClick={() => run(() => deleteDraft(draft.id))}
           >
             <Trash2 data-icon="inline-start" aria-hidden="true" />
-            Löschen
+            {deletedExternally ? "Aus AutoTal entfernen" : "Löschen"}
           </Button>
         </div>
       )}
@@ -861,6 +971,8 @@ function DraftCard({
         <p className="text-muted-foreground mt-3 text-xs">
           Veröffentlicht am {formatDateTime(draft.publishedAt)}
           {draft.approvedByUser && ` · freigegeben von ${draft.approvedByUser}`}
+          {draft.externalCheckedAt &&
+            ` · auf Instagram bestätigt ${formatDateTime(draft.externalCheckedAt)}`}
         </p>
       )}
     </article>

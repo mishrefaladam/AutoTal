@@ -107,12 +107,12 @@ model Vehicle {
 
   /// Beworbener Preis – das, was Kundinnen und Kunden sehen. Entspricht dem
   /// Angebotspreis der Bestands-CSV.
-  priceCents Int
+  priceCents     Int
   /// Verkaufs-/Listenpreis vor einem Aktionspreis. Nur gesetzt, wenn er
   /// tatsächlich abweicht; sonst gibt es nur den einen Preis.
   listPriceCents Int?
   /// Vorsteuerabzugsberechtigt (österreichische Händlerpraxis)
-  vatDeductible Boolean @default(false)
+  vatDeductible  Boolean @default(false)
 
   mileageKm         Int
   firstRegistration DateTime?
@@ -122,35 +122,35 @@ model Vehicle {
   /// Angabe" und wird dort weggelassen, statt etwas zu behaupten.
   fuel              FuelType?
   transmission      TransmissionType?
-  bodyType          BodyType         @default(OTHER)
-  condition         VehicleCondition @default(USED)
+  bodyType          BodyType          @default(OTHER)
+  condition         VehicleCondition  @default(USED)
 
-  powerKw        Int?
+  powerKw         Int?
   displacementCcm Int?
-  color          String?
-  doors          Int?
-  seats          Int?
-  previousOwners Int?
+  color           String?
+  doors           Int?
+  seats           Int?
+  previousOwners  Int?
 
   // -- Ergänzende Fahrzeugdaten ----------------------------------------------
   // Durchweg nullable: Weder CSV noch Preisblatt liefern alles, und ein
   // Standardwert wäre hier eine Falschangabe – die Caption-Erzeugung führt
   // jedes gesetzte Feld als Tatsache.
   /// Antrieb (Vorderrad, Hinterrad, Allrad).
-  drivetrain    DrivetrainType?
+  drivetrain           DrivetrainType?
   /// Nationaler Code der Typisierung (Österreich).
-  nationalCode  String?
+  nationalCode         String?
   /// Fahrzeugtyp laut Händlersystem, z. B. "PKW". Freitext, weil die Quellen
   /// keine gemeinsame Werteliste haben.
-  vehicleType   String?
+  vehicleType          String?
   /// Höchstzulässiges Gesamtgewicht in Kilogramm.
-  grossWeightKg Int?
+  grossWeightKg        Int?
   /// Standzeit in Tagen aus dem Bestandsexport.
-  daysInStock   Int?
+  daysInStock          Int?
   /// §57a-Begutachtung ("Pickerl") gültig bis
   inspectionValidUntil DateTime?
 
-  description String  @default("")
+  description String   @default("")
   /// Ausstattungsliste (US-05)
   features    String[] @default([])
   /// Zusätzlich verbaute Extras, getrennt von der Serienausstattung.
@@ -161,24 +161,24 @@ model Vehicle {
 
   // -- Bestandsführung -------------------------------------------------------
   /// Verfügbarkeit im eigenen Bestand
-  status VehicleStatus @default(IN_STOCK)
+  status        VehicleStatus @default(IN_STOCK)
   /// Gesetzt, sobald status auf SOLD wechselt
-  soldAt DateTime?
+  soldAt        DateTime?
   /// Nur im Admin sichtbar, nie öffentlich ausgegeben
-  internalNotes String @default("")
+  internalNotes String        @default("")
 
   // -- Bestandsimport (CSV) ---------------------------------------------------
   // Rein additiv: Von Hand angelegte Fahrzeuge lassen alle Felder leer und
   // verhalten sich unverändert.
   /// Bestandsnummer des Händlersystems ("GW-Nr"). Zweitstärkstes Merkmal beim
   /// Zuordnen einer Importzeile.
-  stockNumber String?
+  stockNumber          String?
   /// Fahrgestellnummer ("FIN"). Stärkstes Merkmal beim Zuordnen.
-  vin         String?
+  vin                  String?
   /// Erster Import, aus dem dieser Datensatz stammt.
-  importedAt         DateTime?
+  importedAt           DateTime?
   /// Letzter Import, in dem das Fahrzeug enthalten war.
-  lastSeenInImportAt DateTime?
+  lastSeenInImportAt   DateTime?
   /// Gesetzt, sobald ein Import das Fahrzeug NICHT mehr enthielt.
   ///
   /// Ausdrücklich nur ein Hinweis zum Nachsehen: Der Import ändert daraufhin
@@ -187,9 +187,9 @@ model Vehicle {
   missingSinceImportAt DateTime?
   /// Dateiname des letzten Imports – damit nachvollziehbar bleibt, woher der
   /// Stand stammt.
-  importSource   String?
+  importSource         String?
   /// Auffälligkeiten der zuletzt eingelesenen Zeile, für den Admin lesbar.
-  importWarnings String[] @default([])
+  importWarnings       String[]  @default([])
   /// Ersatzkennung aus Marke, Modell, Baujahr und Kilometerstand.
   ///
   /// Nur belegt, wenn der Bestandsexport weder FIN noch GW-Nr liefert. Sie
@@ -200,7 +200,7 @@ model Vehicle {
   /// Bewusst NICHT eindeutig: Zwei in allen Spalten gleiche Fahrzeuge dürfen
   /// nebeneinander stehen. Der Import ordnet sie dann keiner Zeile zu, statt
   /// eine davon zu raten.
-  importFingerprint String?
+  importFingerprint    String?
 
   // -- Preisblatt (PDF) -------------------------------------------------------
   /// Wann zuletzt Daten aus einem Preisblatt übernommen wurden.
@@ -236,11 +236,11 @@ model VehicleImage {
   vehicleId String
   vehicle   Vehicle @relation(fields: [vehicleId], references: [id], onDelete: Cascade)
 
-  url      String
-  alt      String?
-  position Int     @default(0)
-  width    Int?
-  height   Int?
+  url        String
+  alt        String?
+  position   Int     @default(0)
+  width      Int?
+  height     Int?
   /// ID des Bildes beim Anbieter, für idempotente Syncs
   externalId String?
 
@@ -294,7 +294,7 @@ model VehiclePurchaseInquiry {
   /// Preisvorstellung in Cent (Konvention des Projekts)
   priceExpectationCents Int?
   /// Freitext des Kunden zu Zustand und Anmerkungen
-  message               String @default("")
+  message               String           @default("")
 
   // -- Bearbeitung ------------------------------------------------------------
   /// ÜBERHOLT – wird nicht mehr gelesen und nicht mehr geschrieben.
@@ -341,7 +341,7 @@ model CompanySettings {
   email          String
 
   /// UID-Nummer
-  vatId                   String?
+  vatId                    String?
   commercialRegisterNumber String?
   commercialRegisterCourt  String?
 
@@ -446,15 +446,15 @@ model FinanceConfig {
 }
 
 model FinanceProvider {
-  id          String  @id @default(cuid())
-  name        String
-  description String?
-  logoUrl     String?
-  websiteUrl  String?
+  id             String  @id @default(cuid())
+  name           String
+  description    String?
+  logoUrl        String?
+  websiteUrl     String?
   /// Optionaler partnerspezifischer Zinssatz in Basispunkten
   interestRateBp Int?
-  position    Int     @default(0)
-  active      Boolean @default(true)
+  position       Int     @default(0)
+  active         Boolean @default(true)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -471,6 +471,9 @@ enum SocialDraftStatus {
   APPROVED
   PUBLISHED
   FAILED
+  /// Veröffentlicht, aber auf Instagram nicht mehr vorhanden – vom Händler
+  /// direkt in der App gelöscht. AutoTal löscht nie selbst.
+  DELETED_EXTERNALLY
 }
 
 enum SocialPlatform {
@@ -499,6 +502,13 @@ model SocialDraft {
   publishedAt       DateTime?
   externalPostId    String?
   externalPermalink String?
+
+  /// Letzter Abgleich mit Instagram, ob der Beitrag noch existiert. Drosselt
+  /// die Prüfung beim Öffnen der Seite; null = noch nie geprüft.
+  externalCheckedAt       DateTime?
+  /// Media-IDs früherer Veröffentlichungen, die auf Instagram gelöscht und
+  /// danach erneut veröffentlicht wurden – zur Nachvollziehbarkeit.
+  previousExternalPostIds String[]  @default([])
 
   /// Für den Admin verständliche Fehlermeldung (US-24)
   errorMessage  String?

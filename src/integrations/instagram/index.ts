@@ -8,9 +8,11 @@ import { UserFacingError } from "@/lib/result";
 
 import {
   INSTAGRAM_PUBLISH_PERMISSION_MESSAGE,
+  type InstagramMediaExistence,
   buildInstagramAuthorizationUrl,
   exchangeInstagramAuthorizationCode,
   exchangeInstagramLongLivedToken,
+  getInstagramMediaExistence,
   getInstagramProfile,
   hasRequiredInstagramScopes,
   publishInstagramCarousel,
@@ -22,6 +24,7 @@ import {
 export {
   INSTAGRAM_PUBLISH_OUTCOME_UNKNOWN_MESSAGE,
   InstagramPublishOutcomeUnknownError,
+  type InstagramMediaExistence,
 } from "./protocol";
 
 /**
@@ -33,8 +36,11 @@ export {
  *
  * Publishing bleibt zweistufig: Medien-Container anlegen und danach
  * veroeffentlichen. Meta muss das Bild ueber eine oeffentliche URL laden
- * koennen. Aktuell wird bewusst nur ein Bild veroeffentlicht; Instagram
- * Carousel / mehrere Bilder sind noch nicht implementiert.
+ * koennen. Ein Bild geht als Einzelbild, zwei bis zehn als Carousel.
+ *
+ * Gelöscht wird nie über die API: Meta unterstützt DELETE auf veröffentlichte
+ * Feed-Medien nicht verlässlich. Ein in der Instagram-App gelöschter Beitrag
+ * wird nur erkannt (`checkInstagramMediaExists`) und lokal abgeglichen.
  */
 
 const PROVIDER = "instagram";
@@ -372,6 +378,39 @@ export async function publishImagePost(
     alreadyPublished: result.alreadyPublished,
     imageCount: input.imageUrls.length,
     mode: input.imageUrls.length === 1 ? "single" : "carousel",
+  });
+  return result;
+}
+
+/**
+ * Existiert der veröffentlichte Beitrag mit dieser Media-ID noch?
+ *
+ * Nur lesend. Ist kein Konto verbunden oder das Token abgelaufen, ist das
+ * Ergebnis "unknown" – daraus folgt nie eine lokale Statusänderung.
+ */
+export async function checkInstagramMediaExists(
+  mediaId: string,
+): Promise<InstagramMediaExistence> {
+  let accessToken: string;
+  try {
+    instagramConfig();
+    ({ accessToken } = await loadCredential());
+  } catch (error) {
+    return {
+      state: "unknown",
+      reason: "unauthorized",
+      message:
+        error instanceof UserFacingError
+          ? error.message
+          : "Die Instagram-Verbindung ist nicht verfügbar.",
+    };
+  }
+
+  const result = await getInstagramMediaExistence(mediaId, accessToken, fetch);
+  logger.info("Instagram-Beitrag abgeglichen", {
+    mediaId,
+    state: result.state,
+    reason: result.state === "unknown" ? result.reason : undefined,
   });
   return result;
 }
