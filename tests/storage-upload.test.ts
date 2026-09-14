@@ -59,9 +59,12 @@ describe("Upload-Grenzen und Production-Sicherheit", () => {
     assert.equal(MAX_UPLOAD_REQUEST_BYTES, 4 * 1024 * 1024);
     assert.match(route, /content-length/);
     assert.match(route, /totalBytes > MAX_UPLOAD_REQUEST_BYTES/);
-    // Der Client lehnt eine große Auswahl nicht mehr ab, sondern teilt sie in
-    // Stapel, die einzeln unter dem Limit bleiben.
-    assert.match(client, /batchFiles\(selected, MAX_UPLOAD_REQUEST_BYTES, MAX_FILES_PER_REQUEST\)/);
+    // Der Client schickt über diese Route nur noch eine Datei je Anfrage
+    // (Rückfall ohne Blob-Token); mit Blob-Token geht jedes Bild direkt in
+    // den Store und die Function sieht nur den Pfad.
+    assert.match(client, /body\.append\("files", file\)/);
+    assert.ok(!/batchFiles/.test(client));
+    assert.match(client, /handleUploadUrl: `\/api\/admin\/vehicles\/\$\{vehicleId\}\/images\/upload`/);
   });
 
   it("verwendet weiterhin Node.js und schützt den Upload per Admin-Session", () => {

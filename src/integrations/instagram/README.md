@@ -98,21 +98,45 @@ Instagram-Login überschreibt das alte Credential.
 
 ## Veröffentlichen
 
-Meta verlangt zwei Schritte über `graph.instagram.com`:
+Meta verlangt zwei Schritte über `graph.instagram.com`. Welche Bilder
+mitgehen, wählt der Händler am Entwurf aus (Vorgabe: das Titelbild); die
+Reihenfolge ist die der Fahrzeuggalerie.
+
+**Ein Bild** (`publishInstagramImage`):
 
 1. `POST /{instagram-user-id}/media` mit `image_url` und `caption`
-2. `POST /{instagram-user-id}/media_publish` mit der Container-ID
+2. Status-Polling am Container, bis `status_code = FINISHED`
+3. `POST /{instagram-user-id}/media_publish` mit der Container-ID
 
-Randbedingungen:
+**Zwei bis zehn Bilder – Carousel** (`publishInstagramCarousel`):
 
-- Das Bild muss über eine öffentliche HTTPS-URL abrufbar sein.
+1. Je Bild `POST /{instagram-user-id}/media` mit `image_url` und
+   `is_carousel_item=true` – ohne Caption. Jeder Kind-Container wird bis
+   `FINISHED` abgewartet; `ERROR`/`EXPIRED` bricht mit "Bild 3 von 5" ab,
+   bevor irgendetwas veröffentlicht ist.
+2. `POST /{instagram-user-id}/media` mit `media_type=CAROUSEL`,
+   `children=<ids>` und der `caption`; wieder Polling bis `FINISHED`.
+3. Genau ein `POST /{instagram-user-id}/media_publish` mit der
+   Carousel-Container-ID.
+
+Randbedingungen (laut Meta-Dokumentation, Content Publishing):
+
+- Carousels sind auf **10 Elemente** begrenzt; die Zahl steht in
+  `limits.ts` und wird in Oberfläche, Action und Protokoll geprüft.
+- Nur JPEG wird angenommen; PNG/WebP-Bilder aus der Galerie werden vor der
+  Veröffentlichung benannt abgewiesen.
+- Jedes Bild muss über eine öffentliche HTTPS-URL abrufbar sein – vor dem
+  ersten API-Aufruf prüft ein HEAD die Erreichbarkeit ("Bild 2 von 4 ist
+  nicht erreichbar").
 - Instagram lädt die Datei selbst; das Token wird nicht an die Bild-URL gehängt.
 - Das aktuelle kontospezifische Limit wird über
   `/{instagram-user-id}/content_publishing_limit` gelesen. Ist die Abfrage
   vorübergehend nicht verfügbar, wird keine möglicherweise veraltete Zahl
   angezeigt oder erzwungen.
-- Aktuell wird nur das erste Bild eines Social-Media-Entwurfs veröffentlicht.
-- **Instagram Carousel / mehrere Bilder sind noch nicht implementiert.**
+- Doppelpost-Schutz gilt für beide Wege: Die Media-ID wird sofort nach
+  `media_publish` gespeichert; ein Entwurf mit `externalPostId` wird nie
+  ein zweites Mal veröffentlicht, parallele Klicks blockiert eine Sperre am
+  Entwurf. Ein Carousel wird nicht als halber Beitrag veröffentlicht.
 
 ## Freigabe und Fehler
 

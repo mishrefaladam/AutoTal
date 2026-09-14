@@ -3,6 +3,7 @@
 import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { useRef, useState, useTransition } from "react";
+import { upload } from "@vercel/blob/client";
 import {
   ArrowLeft,
   ArrowRight,
@@ -11,6 +12,7 @@ import {
   GripVertical,
   ImagePlus,
   Loader2,
+  RotateCw,
   Star,
   Trash2,
   TriangleAlert,
@@ -18,9 +20,9 @@ import {
 
 import { AdminCard } from "@/components/admin/admin-page-header";
 import { Button } from "@/components/ui/button";
-import { batchFiles } from "@/lib/upload-batches";
+import { UploadError, runUploadQueue, type UploadItemState } from "@/lib/upload-queue";
 import { cn } from "@/lib/utils";
-import { MAX_UPLOAD_REQUEST_BYTES } from "@/integrations/storage/types";
+import { ALLOWED_IMAGE_TYPES, MAX_IMAGE_BYTES } from "@/integrations/storage/types";
 import {
   deleteVehicleImage,
   reorderVehicleImages,
@@ -33,11 +35,15 @@ import {
  * wird für Social-Media-Beiträge verwendet. Deshalb ist die Reihenfolge
  * nicht kosmetisch, sondern inhaltlich.
  *
- * HOCHLADEN: Mehrere Dateien auf einmal, per Auswahl oder Ablegen. Der
- * Server nimmt je Anfrage 4 MB und 20 Dateien an; größere Auswahlen werden
- * hier in Stapel geteilt und nacheinander geschickt – für den Händler ist es
- * ein Vorgang. Jede Datei bekommt ihr eigenes Ergebnis: übernommen oder mit
- * Grund abgelehnt. Ein Fehler bei einer Datei hält die anderen nicht auf.
+ * HOCHLADEN: Mehrere Dateien auf einmal, per Auswahl oder Ablegen. Jedes
+ * Bild geht einzeln – in Produktion direkt in den Blob-Store, vorbei am
+ * 4,5-MB-Limit und an der Laufzeit der Function; lokal ohne Blob-Token über
+ * die bisherige Route. Höchstens zwei zugleich: Elf iPhone-Fotos auf einmal
+ * über Mobilfunk brachten Safari dazu, einzelne Verbindungen abzubrechen.
+ * Ein Netzwerkabbruch wird einmal automatisch wiederholt; eine Ablehnung
+ * ("kein JPEG") nicht. Jede Datei bekommt ihr eigenes Ergebnis, ein Fehler
+ * hält die anderen nicht auf, und was scheiterte, lässt sich einzeln erneut
+ * anstoßen.
  *
  * SORTIEREN: Ziehen mit der Maus – ohne Bibliothek, über die Drag-and-Drop-
  * Schnittstelle des Browsers. Die Pfeile bleiben daneben: Sie funktionieren
@@ -53,12 +59,102 @@ export type VehicleImageItem = {
 
 /** Ergebnis je Datei, damit der Händler sieht, was mit jeder passiert ist. */
 type FileOutcome = {
+  key: string;
   name: string;
-  state: "pending" | "uploading" | "done" | "failed";
-  message?: string;
+  file: File;
+  state: UploadItemState;
 };
 
-const MAX_FILES_PER_REQUEST = 20;
+/** Zwei zugleich – siehe Kopfkommentar. */
+const UPLOAD_CONCURRENCY = 2;
+/** Ein automatischer zweiter Versuch bei Netzwerkfehlern, dann der Nutzer. */
+const UPLOAD_MAX_ATTEMPTS = 2;
+const UPLOAD_BACKOFF_MS = 1500;
+/** Direkt nach Blob: Instagrams Obergrenze je Foto. */
+const DIRECT_MAX_BYTES = 8 * 1024 * 1024;
+
+function formatMegabytes(bytes: number): string {
+  return `${(bytes / 1024 / 1024).toFixed(1).replace(".", ",")} MB`;
+}
+
+/** Nicht-JSON (413 als Klartext, HTML einer Fehlerseite) sauber einordnen. */
+async function readJson<T>(response: Response): Promise<T | null> {
+  try {
+    return (await response.json()) as T;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Wiederholbar oder endgültig? Eine Ablehnung des Servers (4xx) ist ein
+ * Urteil über die Datei; 5xx und Netzwerkabbrüche sind vorübergehend.
+ */
+function toUploadError(status: number, message: string | undefined): UploadError {
+  if (status >= 400 && status < 500) {
+    return new UploadError(
+      message ??
+        (status === 413 ? `Datei zu groß (über ${formatMegabytes(MAX_IMAGE_BYTES)})` : "Upload abgelehnt"),
+      false,
+    );
+  }
+  return new UploadError(message ?? "Der Server hat nicht geantwortet", true);
+}
+
+/** Direkt nach Vercel Blob, danach beim Fahrzeug eintragen. */
+async function uploadDirect(vehicleId: string, file: File): Promise<VehicleImageItem> {
+  const extension = file.type === "image/png" ? "png" : file.type === "image/webp" ? "webp" : "jpg";
+  let pathname: string;
+  try {
+    const result = await upload(`fahrzeuge/${vehicleId}/${crypto.randomUUID()}.${extension}`, file, {
+      access: "public",
+      handleUploadUrl: `/api/admin/vehicles/${vehicleId}/images/upload`,
+      contentType: file.type,
+    });
+    pathname = result.pathname;
+  } catch (cause) {
+    // Das SDK meldet Ablehnungen (Typ, Größe) mit Klartext; alles andere ist
+    // ein Übertragungsproblem und darf wiederholt werden.
+    const message = cause instanceof Error ? cause.message : "";
+    const rejected = /content type|size|too large|not allowed|forbidden|Ungültig/i.test(message);
+    throw new UploadError(
+      rejected ? message : "Die Verbindung ist abgebrochen.",
+      !rejected,
+    );
+  }
+
+  const response = await fetch(`/api/admin/vehicles/${vehicleId}/images/register`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ pathname }),
+  });
+  const result = await readJson<{ image?: VehicleImageItem; error?: string }>(response);
+  if (!response.ok || !result?.image) {
+    throw toUploadError(response.status, result?.error);
+  }
+  return { ...result.image, alt: null };
+}
+
+/** Rückfall ohne Blob-Token: eine Datei je Anfrage über die bisherige Route. */
+async function uploadViaFunction(vehicleId: string, file: File): Promise<VehicleImageItem> {
+  const body = new FormData();
+  body.append("files", file);
+  const response = await fetch(`/api/admin/vehicles/${vehicleId}/images`, {
+    method: "POST",
+    body,
+  });
+  const result = await readJson<{ images?: VehicleImageItem[]; skipped?: string[]; error?: string }>(
+    response,
+  );
+  if (!response.ok) throw toUploadError(response.status, result?.error);
+  const image = result?.images?.[0];
+  if (!image) {
+    // Der Server hat die eine Datei benannt abgelehnt: "name: Grund".
+    const reason = result?.skipped?.[0]?.split(": ").slice(1).join(": ") ?? "Upload abgelehnt";
+    throw new UploadError(reason, false);
+  }
+  return { ...image, alt: null };
+}
 
 export function VehicleImageManager({
   vehicleId,
@@ -76,78 +172,67 @@ export function VehicleImageManager({
   const [images, setImages] = useState(initialImages);
   const [uploading, setUploading] = useState(false);
   const [outcomes, setOutcomes] = useState<FileOutcome[]>([]);
+  const directRef = useRef<boolean | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [dragOver, setDragOver] = useState(false);
   const [dragIndex, setDragIndex] = useState<number | null>(null);
   const [pending, startTransition] = useTransition();
 
-  async function handleFiles(files: FileList | File[] | null) {
-    if (!files || files.length === 0) return;
+  /** Einmal je Sitzung fragen, ob der direkte Weg nach Blob offen ist. */
+  async function isDirect(): Promise<boolean> {
+    if (directRef.current !== null) return directRef.current;
+    try {
+      const response = await fetch(`/api/admin/vehicles/${vehicleId}/images/upload`);
+      const info = await readJson<{ directUpload?: boolean }>(response);
+      directRef.current = Boolean(info?.directUpload);
+    } catch {
+      directRef.current = false;
+    }
+    return directRef.current;
+  }
 
+  /**
+   * Lädt eine Liste von Dateien hoch – neu gewählte oder die, die beim letzten
+   * Mal scheiterten. Was schon übernommen wurde, wird nie noch einmal
+   * geschickt.
+   */
+  async function runUploads(targets: FileOutcome[]) {
+    if (targets.length === 0) return;
     setError(null);
-    const selected = Array.from(files);
-    setOutcomes(selected.map((file) => ({ name: file.name, state: "pending" })));
     setUploading(true);
 
+    const direct = await isDirect();
+    const maxBytes = direct ? DIRECT_MAX_BYTES : MAX_IMAGE_BYTES;
+    const keys = targets.map((t) => t.key);
+    const setState = (key: string, state: UploadItemState) =>
+      setOutcomes((current) => current.map((o) => (o.key === key ? { ...o, state } : o)));
+
     try {
-      for (const batch of batchFiles(selected, MAX_UPLOAD_REQUEST_BYTES, MAX_FILES_PER_REQUEST)) {
-        const names = new Set(batch.map((file) => file.name));
-        setOutcomes((current) =>
-          current.map((o) => (names.has(o.name) && o.state === "pending" ? { ...o, state: "uploading" } : o)),
-        );
-
-        const body = new FormData();
-        for (const file of batch) body.append("files", file);
-
-        let result: { error?: string; skipped?: string[]; images?: VehicleImageItem[] };
-        try {
-          const response = await fetch(`/api/admin/vehicles/${vehicleId}/images`, {
-            method: "POST",
-            body,
-          });
-          result = (await response.json()) as typeof result;
-          if (!response.ok) {
-            result = { error: result.error ?? "Der Upload ist fehlgeschlagen." };
+      await runUploadQueue(
+        targets,
+        async (target) => {
+          // Prüfungen, die kein Netz brauchen – mit endgültigem Urteil.
+          if (!ALLOWED_IMAGE_TYPES.includes(target.file.type as (typeof ALLOWED_IMAGE_TYPES)[number])) {
+            throw new UploadError("nur JPEG, PNG oder WebP", false);
           }
-        } catch {
-          result = { error: "Die Verbindung ist abgebrochen." };
-        }
-
-        if (result.error) {
-          // Der ganze Stapel scheiterte – jede Datei darin bekommt den Grund.
-          const reason = result.error;
-          setOutcomes((current) =>
-            current.map((o) =>
-              names.has(o.name) && o.state === "uploading"
-                ? { ...o, state: "failed", message: reason }
-                : o,
-            ),
+          if (target.file.size > maxBytes) {
+            throw new UploadError(`über ${formatMegabytes(maxBytes)}`, false);
+          }
+          const image = direct
+            ? await uploadDirect(vehicleId, target.file)
+            : await uploadViaFunction(vehicleId, target.file);
+          setImages((current) =>
+            current.some((i) => i.id === image.id) ? current : [...current, image],
           );
-          continue;
-        }
-
-        // Abgelehnte Dateien meldet der Server als "name: Grund".
-        const failed = new Map<string, string>();
-        for (const entry of result.skipped ?? []) {
-          const separator = entry.indexOf(": ");
-          if (separator > 0) failed.set(entry.slice(0, separator), entry.slice(separator + 2));
-        }
-
-        setOutcomes((current) =>
-          current.map((o) => {
-            if (!names.has(o.name) || o.state !== "uploading") return o;
-            const reason = failed.get(o.name);
-            return reason ? { ...o, state: "failed", message: reason } : { ...o, state: "done" };
-          }),
-        );
-
-        if (result.images?.length) {
-          setImages((current) => [
-            ...current,
-            ...result.images!.map((image) => ({ ...image, alt: null })),
-          ]);
-        }
-      }
+          return image;
+        },
+        {
+          concurrency: UPLOAD_CONCURRENCY,
+          maxAttempts: UPLOAD_MAX_ATTEMPTS,
+          backoffMs: UPLOAD_BACKOFF_MS,
+          onState: (index, state) => setState(keys[index], state),
+        },
+      );
 
       // Server-Komponenten neu laden, damit Liste und Beitragsassistent den
       // neuen Stand zeigen.
@@ -156,6 +241,27 @@ export function VehicleImageManager({
       setUploading(false);
       if (inputRef.current) inputRef.current.value = "";
     }
+  }
+
+  function handleFiles(files: FileList | File[] | null) {
+    if (!files || files.length === 0) return;
+    const selected = Array.from(files).map((file, index) => ({
+      key: `${Date.now()}-${index}-${file.name}`,
+      name: file.name,
+      file,
+      state: { kind: "pending" } as UploadItemState,
+    }));
+    setOutcomes(selected);
+    void runUploads(selected);
+  }
+
+  /** Nur die gescheiterten noch einmal – erfolgreiche bleiben, wie sie sind. */
+  function retryFailed() {
+    const failed = outcomes.filter((o) => o.state.kind === "failed");
+    setOutcomes((current) =>
+      current.map((o) => (o.state.kind === "failed" ? { ...o, state: { kind: "pending" } } : o)),
+    );
+    void runUploads(failed);
   }
 
   function persistOrder(next: VehicleImageItem[]) {
@@ -201,8 +307,8 @@ export function VehicleImageManager({
     });
   }
 
-  const doneCount = outcomes.filter((o) => o.state === "done").length;
-  const failedCount = outcomes.filter((o) => o.state === "failed").length;
+  const doneCount = outcomes.filter((o) => o.state.kind === "done").length;
+  const failedCount = outcomes.filter((o) => o.state.kind === "failed").length;
 
   return (
     <AdminCard
@@ -281,30 +387,46 @@ export function VehicleImageManager({
             aria-live="polite"
             className="border-border bg-muted/40 mb-5 space-y-1 rounded-lg border p-3 text-sm"
           >
-            <li className="text-muted-foreground mb-1 text-xs">
-              {uploading
-                ? `${doneCount} von ${outcomes.length} hochgeladen …`
-                : `${doneCount} übernommen${failedCount > 0 ? `, ${failedCount} abgelehnt` : ""}`}
+            <li className="text-muted-foreground mb-1 flex flex-wrap items-center justify-between gap-2 text-xs">
+              <span>
+                {uploading
+                  ? `${doneCount} von ${outcomes.length} hochgeladen …`
+                  : `${doneCount} von ${outcomes.length} übernommen${failedCount > 0 ? `, ${failedCount} fehlgeschlagen` : ""}`}
+              </span>
+              {!uploading && failedCount > 0 && (
+                <Button type="button" variant="outline" size="sm" onClick={retryFailed}>
+                  <RotateCw data-icon="inline-start" aria-hidden="true" />
+                  {failedCount === 1 ? "Erneut versuchen" : `${failedCount} erneut versuchen`}
+                </Button>
+              )}
             </li>
             {outcomes.map((outcome) => (
-              <li key={outcome.name} className="flex items-start gap-2">
-                {outcome.state === "done" ? (
+              <li key={outcome.key} className="flex items-start gap-2">
+                {outcome.state.kind === "done" ? (
                   <CircleCheck className="text-success mt-0.5 size-4 shrink-0" aria-hidden="true" />
-                ) : outcome.state === "failed" ? (
+                ) : outcome.state.kind === "failed" ? (
                   <CircleX className="text-destructive mt-0.5 size-4 shrink-0" aria-hidden="true" />
+                ) : outcome.state.kind === "retrying" ? (
+                  <RotateCw className="text-warning mt-0.5 size-4 shrink-0 animate-spin" aria-hidden="true" />
                 ) : (
                   <Loader2
                     className={cn(
                       "text-muted-foreground mt-0.5 size-4 shrink-0",
-                      outcome.state === "uploading" && "animate-spin",
+                      outcome.state.kind === "uploading" && "animate-spin",
                     )}
                     aria-hidden="true"
                   />
                 )}
                 <span className="min-w-0 break-words">
                   {outcome.name}
-                  {outcome.message && (
-                    <span className="text-muted-foreground"> – {outcome.message}</span>
+                  {outcome.state.kind === "retrying" && (
+                    <span className="text-muted-foreground"> – neuer Versuch …</span>
+                  )}
+                  {outcome.state.kind === "failed" && (
+                    <span className="text-muted-foreground">
+                      {" "}– {outcome.state.retryable ? "Upload fehlgeschlagen: " : ""}
+                      {outcome.state.message}
+                    </span>
                   )}
                 </span>
               </li>
@@ -321,7 +443,7 @@ export function VehicleImageManager({
             <ImagePlus className="text-muted-foreground size-7" aria-hidden="true" />
             <span className="text-sm font-medium">Bilder auswählen oder hierher ziehen</span>
             <span className="text-muted-foreground text-xs">
-              JPEG, PNG oder WebP · mehrere auf einmal · bis 4 MB je Datei
+              JPEG, PNG oder WebP · mehrere auf einmal · bis 8 MB je Bild
             </span>
           </button>
         ) : (

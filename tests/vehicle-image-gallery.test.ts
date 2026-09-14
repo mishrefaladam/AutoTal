@@ -2,15 +2,14 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { describe, it } from "node:test";
 
-import { batchFiles } from "@/lib/upload-batches";
-
 /**
  * Fahrzeugbilder: mehrere auf einmal hochladen, sortieren, Titelbild.
  *
  * Das Datenmodell (VehicleImage.position) und die Upload-Route konnten
  * mehrere Bilder schon; die Oberfläche hat es nur umständlich gemacht. Die
- * Tests hier sichern das Zusammenspiel: Stapelbildung im Client gegen die
- * Server-Grenzen, Position 0 als Titelbild, Reihenfolge in der Datenbank.
+ * Tests hier sichern das Zusammenspiel: eine Datei je Anfrage über eine
+ * Warteschlange (die Stapelbildung von früher scheiterte am mobilen Safari),
+ * Position 0 als Titelbild, Reihenfolge in der Datenbank.
  */
 
 const route = readFileSync("src/app/api/admin/vehicles/[id]/images/route.ts", "utf8");
@@ -22,47 +21,33 @@ const actions = readFileSync("src/modules/vehicles/admin-actions.ts", "utf8");
 // ---------------------------------------------------------------------------
 
 describe("Mehrere Bilder hochladen", () => {
-  it("nimmt mehrere Dateien in einer Anfrage an", () => {
-    assert.match(route, /formData\s*\.getAll\("files"\)/);
+  it("nimmt mehrere Dateien an – jede in ihrer eigenen Anfrage", () => {
     assert.match(manager, /multiple/);
-    assert.match(manager, /body\.append\("files", file\)/);
+    // Kein gemeinsamer Multipart-Stapel mehr: Der direkte Weg nach Blob
+    // trägt jede Datei einzeln, der Rückfall über die Function ebenso.
+    assert.match(manager, /runUploadQueue\(/);
+    assert.match(manager, /async function uploadDirect\(vehicleId: string, file: File\)/);
+    assert.match(manager, /async function uploadViaFunction\(vehicleId: string, file: File\)/);
+    assert.ok(!/batchFiles/.test(manager));
+    // Die bestehende Route nimmt weiterhin mehrere Dateien – andere Aufrufer
+    // bleiben unberührt.
+    assert.match(route, /formData\s*\.getAll\("files"\)/);
   });
 
-  it("teilt eine große Auswahl in Stapel innerhalb der Server-Grenzen", () => {
-    const mb = 1024 * 1024;
-    const files = [
-      { size: 1.5 * mb, name: "a" },
-      { size: 1.5 * mb, name: "b" },
-      { size: 1.5 * mb, name: "c" },
-      { size: 0.5 * mb, name: "d" },
-    ];
-    const batches = batchFiles(files, 4 * mb, 20);
-
-    assert.equal(batches.length, 2);
-    assert.deepEqual(batches[0].map((f) => f.name), ["a", "b"]);
-    assert.deepEqual(batches[1].map((f) => f.name), ["c", "d"]);
-  });
-
-  it("begrenzt die Anzahl je Stapel", () => {
-    const files = Array.from({ length: 45 }, (_, i) => ({ size: 1, name: String(i) }));
-    const batches = batchFiles(files, 4 * 1024 * 1024, 20);
-    assert.deepEqual(batches.map((b) => b.length), [20, 20, 5]);
-  });
-
-  it("lässt eine zu große Datei allein in ihren Stapel – der Server lehnt sie benannt ab", () => {
-    const mb = 1024 * 1024;
-    const batches = batchFiles([{ size: 6 * mb }, { size: 1 * mb }], 4 * mb, 20);
-    assert.equal(batches.length, 2);
-    assert.equal(batches[0].length, 1);
+  it("lädt höchstens zwei Bilder gleichzeitig hoch", () => {
+    assert.match(manager, /const UPLOAD_CONCURRENCY = 2;/);
+    assert.match(manager, /concurrency: UPLOAD_CONCURRENCY/);
   });
 
   it("zeigt Status und Fehler je Datei", () => {
     assert.match(manager, /type FileOutcome/);
-    assert.match(manager, /"pending" \| "uploading" \| "done" \| "failed"/);
+    assert.match(manager, /state: UploadItemState/);
     assert.match(manager, /von \$\{outcomes\.length\} hochgeladen/);
+    assert.match(manager, /fehlgeschlagen/);
+    assert.match(manager, /outcome\.state\.kind === "retrying"/);
     // Der Server meldet abgelehnte Dateien als "name: Grund".
     assert.match(route, /skipped\.push\(`\$\{file\.name\}: /);
-    assert.match(manager, /failed\.set\(entry\.slice\(0, separator\)/);
+    assert.match(manager, /skipped\?\.\[0\]\?\.split\(": "\)/);
   });
 
   it("nimmt Dateien per Ablegen an", () => {
@@ -141,11 +126,15 @@ describe("Galerie", () => {
 // ---------------------------------------------------------------------------
 
 describe("Social Media", () => {
-  it("verwendet weiterhin das Titelbild", () => {
+  it("verwendet das Titelbild als Vorgabe und bietet die übrigen zur Auswahl", () => {
     const social = readFileSync("src/modules/social/repository.ts", "utf8");
     const socialActions = readFileSync("src/modules/social/actions.ts", "utf8");
+    // Fahrzeugwahl: nur das Titelbild als Vorschau.
     assert.match(social, /orderBy: \{ position: "asc" \}, take: 1/);
+    // Entwurf: alle Bilder in Galerie-Reihenfolge, Titelbild vorausgewählt.
+    assert.match(social, /images: \{ orderBy: \{ position: "asc" \}, select: \{ url: true \} \}/);
     assert.match(socialActions, /vehicle\.images\.slice\(0, 1\)/);
+    assert.match(socialActions, /galleryUrls\.slice\(0, 1\)/);
   });
 });
 

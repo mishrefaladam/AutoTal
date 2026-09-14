@@ -3,6 +3,8 @@ import "server-only";
 import { logger } from "@/lib/logger";
 import { UserFacingError, type ErrorCode } from "@/lib/result";
 
+import { INSTAGRAM_CAROUSEL_MAX_ITEMS, INSTAGRAM_CAROUSEL_MIN_ITEMS } from "./limits";
+
 /**
  * Zentrale Protokollkonfiguration fuer die Instagram API mit Instagram Login.
  * Die Version wird absichtlich nur hier festgelegt.
@@ -29,6 +31,8 @@ export const INSTAGRAM_CONTAINER_POLL_DELAYS_MS = [
 ] as const;
 
 const INSTAGRAM_PUBLISH_RETRY_POLL_DELAYS_MS = [1_000, 1_500, 1_500] as const;
+
+export { INSTAGRAM_CAROUSEL_MAX_ITEMS, INSTAGRAM_CAROUSEL_MIN_ITEMS } from "./limits";
 
 const INSTAGRAM_OAUTH_URL = "https://www.instagram.com/oauth/authorize";
 const INSTAGRAM_CODE_TOKEN_URL = "https://api.instagram.com/oauth/access_token";
@@ -630,6 +634,8 @@ export async function getInstagramContainerStatus(
 type ContainerPollingOptions = {
   delaysMs?: readonly number[];
   sleep?: (milliseconds: number) => Promise<void>;
+  /** "Bild 3 von 5" – damit die Meldung sagt, welches Medium gemeint ist. */
+  mediaLabel?: string;
 };
 
 const sleep = (milliseconds: number) =>
@@ -663,18 +669,22 @@ export async function waitForInstagramContainer(
     if (container.statusCode === "FINISHED") return "FINISHED";
     if (container.statusCode === "PUBLISHED") return "PUBLISHED";
 
+    // Ein Medienproblem heißt beim Namen: "Bild 3 von 5" – nicht "Verbindung
+    // prüfen". Der Händler soll wissen, welches Bild er ansehen muss.
+    const media = options.mediaLabel ?? "das Bild";
+
     if (container.statusCode === "ERROR") {
       throw new UserFacingError(
-        "Instagram konnte das Bild nicht verarbeiten. Bitte prüfen Sie das " +
-          "Fahrzeugbild und versuchen Sie es erneut.",
+        `Instagram konnte ${media} nicht verarbeiten. Bitte prüfen Sie das ` +
+          "Fahrzeugbild (JPEG, öffentlich erreichbar) und versuchen Sie es erneut.",
         "SERVICE_UNAVAILABLE",
       );
     }
 
     if (container.statusCode === "EXPIRED") {
       throw new UserFacingError(
-        "Der Instagram-Mediencontainer ist abgelaufen. Bitte versuchen Sie " +
-          "die Veröffentlichung erneut; dabei wird ein neuer Container erstellt.",
+        `Der Instagram-Mediencontainer für ${media} ist abgelaufen. Bitte ` +
+          "versuchen Sie die Veröffentlichung erneut; dabei werden neue Container erstellt.",
         "SERVICE_UNAVAILABLE",
       );
     }
@@ -695,10 +705,67 @@ export async function waitForInstagramContainer(
   }
 
   throw new UserFacingError(
-    "Instagram verarbeitet das Bild noch. Bitte versuchen Sie die " +
+    `Instagram verarbeitet ${options.mediaLabel ?? "das Bild"} noch. Bitte versuchen Sie die ` +
       "Veröffentlichung in einem Moment erneut.",
     "SERVICE_UNAVAILABLE",
   );
+}
+
+/**
+ * Ein Element eines Carousels: nur das Bild, keine Caption – die gehört an
+ * den Carousel-Container.
+ */
+export async function createInstagramCarouselItemContainer(
+  accountId: string,
+  accessToken: string,
+  input: { imageUrl: string },
+  fetcher: Fetcher = fetch,
+): Promise<string> {
+  const response = await graphRequest<{ id?: string }>(
+    `/${accountId}/media`,
+    accessToken,
+    { image_url: input.imageUrl, is_carousel_item: "true" },
+    "POST",
+    fetcher,
+  );
+
+  if (!response.id) {
+    throw new UserFacingError(
+      "Instagram hat keinen Medien-Container für das Carousel-Bild erstellt.",
+      "SERVICE_UNAVAILABLE",
+    );
+  }
+
+  return response.id;
+}
+
+/** Der Carousel-Container: die fertigen Kinder in Reihenfolge plus Caption. */
+export async function createInstagramCarouselContainer(
+  accountId: string,
+  accessToken: string,
+  input: { childrenIds: readonly string[]; caption: string },
+  fetcher: Fetcher = fetch,
+): Promise<string> {
+  const response = await graphRequest<{ id?: string }>(
+    `/${accountId}/media`,
+    accessToken,
+    {
+      media_type: "CAROUSEL",
+      children: input.childrenIds.join(","),
+      caption: input.caption,
+    },
+    "POST",
+    fetcher,
+  );
+
+  if (!response.id) {
+    throw new UserFacingError(
+      "Instagram hat keinen Carousel-Container erstellt.",
+      "SERVICE_UNAVAILABLE",
+    );
+  }
+
+  return response.id;
 }
 
 export async function publishInstagramImageContainer(
@@ -739,6 +806,41 @@ export async function getInstagramMediaPermalink(
 }
 
 /**
+ * Weiche Sperre am Kontolimit: Ist es erreicht, wird gar nicht erst ein
+ * Container erzeugt. Lässt sich das Limit nicht lesen, wird trotzdem
+ * veröffentlicht – eine veraltete Zahl darf keinen Beitrag verhindern.
+ */
+async function assertPublishingLimitNotReached(
+  accountId: string,
+  accessToken: string,
+  fetcher: Fetcher,
+): Promise<void> {
+  try {
+    const limit = await getInstagramPublishingLimit(
+      accountId,
+      accessToken,
+      fetcher,
+    );
+    if (limit && limit.total > 0 && limit.usage >= limit.total) {
+      throw new UserFacingError(
+        `Instagram hat das aktuelle Veröffentlichungslimit erreicht ` +
+          `(${limit.usage} von ${limit.total}). Bitte versuchen Sie es später erneut.`,
+        "RATE_LIMITED",
+      );
+    }
+  } catch (error) {
+    if (error instanceof UserFacingError && error.code === "RATE_LIMITED") {
+      throw error;
+    }
+
+    logger.warn("Instagram-Veröffentlichungslimit konnte nicht gelesen werden", {
+      accountId,
+      error,
+    });
+  }
+}
+
+/**
  * Fuehrt genau einen Publishing-Versuch aus. Die Limit-Abfrage ist nur eine
  * Komfortpruefung: Meta erzwingt das Limit letztlich bei `media_publish`.
  * Nur fuer Metas eindeutigem "Media ID is not available" darf nach erneuter
@@ -769,29 +871,7 @@ export async function publishInstagramImage(
     };
   }
 
-  try {
-    const limit = await getInstagramPublishingLimit(
-      accountId,
-      accessToken,
-      fetcher,
-    );
-    if (limit && limit.total > 0 && limit.usage >= limit.total) {
-      throw new UserFacingError(
-        `Instagram hat das aktuelle Veröffentlichungslimit erreicht ` +
-          `(${limit.usage} von ${limit.total}). Bitte versuchen Sie es später erneut.`,
-        "RATE_LIMITED",
-      );
-    }
-  } catch (error) {
-    if (error instanceof UserFacingError && error.code === "RATE_LIMITED") {
-      throw error;
-    }
-
-    logger.warn("Instagram-Veröffentlichungslimit konnte nicht gelesen werden", {
-      accountId,
-      error,
-    });
-  }
+  await assertPublishingLimitNotReached(accountId, accessToken, fetcher);
 
   const containerId = await createInstagramImageContainer(
     accountId,
@@ -810,14 +890,44 @@ export async function publishInstagramImage(
     return { postId: null, permalink: null, alreadyPublished: true };
   }
 
-  let postId: string;
+  const published = await publishContainerWithRetry(
+    accountId,
+    accessToken,
+    containerId,
+    fetcher,
+    options,
+  );
+  if (published.alreadyPublished) {
+    return { postId: null, permalink: null, alreadyPublished: true };
+  }
+
+  return persistAndResolve(published.postId, containerId, accessToken, fetcher, options);
+}
+
+type PublishOptions = ContainerPollingOptions & {
+  retryDelaysMs?: readonly number[];
+  onPublished?: (postId: string) => Promise<void>;
+};
+
+/**
+ * `media_publish` mit genau einem kontrollierten Retry – und nur für Metas
+ * eindeutiges "Media ID is not available" (9007/2207027). Jeder andere
+ * Fehler geht unverändert nach oben; ein blinder zweiter Aufruf könnte
+ * einen zweiten Beitrag erzeugen.
+ *
+ * Für Einzelbild und Carousel dieselbe Routine: Der Container-Typ spielt
+ * für den Publish-Schritt keine Rolle.
+ */
+async function publishContainerWithRetry(
+  accountId: string,
+  accessToken: string,
+  containerId: string,
+  fetcher: Fetcher,
+  options: PublishOptions,
+): Promise<{ postId: string; alreadyPublished: false } | { postId: null; alreadyPublished: true }> {
   try {
-    postId = await publishInstagramImageContainer(
-      accountId,
-      accessToken,
-      containerId,
-      fetcher,
-    );
+    const postId = await publishInstagramImageContainer(accountId, accessToken, containerId, fetcher);
+    return { postId, alreadyPublished: false };
   } catch (error) {
     const isMediaNotAvailable =
       error instanceof InstagramApiRequestError &&
@@ -832,30 +942,29 @@ export async function publishInstagramImage(
       errorSubcode: error.errorSubcode,
     });
 
-    const retryState = await waitForInstagramContainer(
-      containerId,
-      accessToken,
-      fetcher,
-      {
-        delaysMs:
-          options.retryDelaysMs ?? INSTAGRAM_PUBLISH_RETRY_POLL_DELAYS_MS,
-        sleep: options.sleep,
-      },
-    );
+    const retryState = await waitForInstagramContainer(containerId, accessToken, fetcher, {
+      delaysMs: options.retryDelaysMs ?? INSTAGRAM_PUBLISH_RETRY_POLL_DELAYS_MS,
+      sleep: options.sleep,
+      mediaLabel: options.mediaLabel,
+    });
 
     if (retryState === "PUBLISHED") {
-      return { postId: null, permalink: null, alreadyPublished: true };
+      return { postId: null, alreadyPublished: true };
     }
 
     // Genau ein Retry fuer den eindeutig abgelehnten 9007/2207027-Aufruf.
-    postId = await publishInstagramImageContainer(
-      accountId,
-      accessToken,
-      containerId,
-      fetcher,
-    );
+    const postId = await publishInstagramImageContainer(accountId, accessToken, containerId, fetcher);
+    return { postId, alreadyPublished: false };
   }
+}
 
+async function persistAndResolve(
+  postId: string,
+  containerId: string,
+  accessToken: string,
+  fetcher: Fetcher,
+  options: PublishOptions,
+): Promise<InstagramPublishResult> {
   if (options.onPublished) {
     try {
       await options.onPublished(postId);
@@ -871,14 +980,104 @@ export async function publishInstagramImage(
 
   let permalink: string | null = null;
   try {
-    permalink = await getInstagramMediaPermalink(
-      postId,
-      accessToken,
-      fetcher,
-    );
+    permalink = await getInstagramMediaPermalink(postId, accessToken, fetcher);
   } catch {
     logger.warn("Instagram-Permalink konnte nicht geladen werden", { postId });
   }
 
   return { postId, permalink, alreadyPublished: false };
+}
+
+/**
+ * Carousel: mehrere Bilder als ein Beitrag.
+ *
+ * Ablauf laut Meta: je Bild ein Container mit `is_carousel_item=true` (ohne
+ * Caption), jeder bis FINISHED abwarten; dann der Carousel-Container mit
+ * `media_type=CAROUSEL`, den Kind-IDs in Reihenfolge und der Caption; auch
+ * den abwarten; erst dann genau ein `media_publish`.
+ *
+ * Scheitert ein Kind, wird abgebrochen – kein halbes Carousel. Die Meldung
+ * nennt die Position ("Bild 3 von 5"). Die Kinder entstehen in einem Zug;
+ * ein Retry über `media_publish` hinaus erzeugt neue Container, nie einen
+ * zweiten Beitrag, weil der Aufrufer die Media ID sofort persistiert und
+ * beim nächsten Aufruf `publishedMediaId` mitgibt.
+ */
+export async function publishInstagramCarousel(
+  input: {
+    accountId: string;
+    accessToken: string;
+    imageUrls: readonly string[];
+    caption: string;
+    publishedMediaId?: string | null;
+    publishedPermalink?: string | null;
+  },
+  fetcher: Fetcher = fetch,
+  options: PublishOptions = {},
+): Promise<InstagramPublishResult> {
+  const { accountId, accessToken, imageUrls } = input;
+
+  if (input.publishedMediaId) {
+    return {
+      postId: input.publishedMediaId,
+      permalink: input.publishedPermalink ?? null,
+      alreadyPublished: true,
+    };
+  }
+
+  if (
+    imageUrls.length < INSTAGRAM_CAROUSEL_MIN_ITEMS ||
+    imageUrls.length > INSTAGRAM_CAROUSEL_MAX_ITEMS
+  ) {
+    throw new UserFacingError(
+      `Ein Instagram-Carousel braucht ${INSTAGRAM_CAROUSEL_MIN_ITEMS} bis ` +
+        `${INSTAGRAM_CAROUSEL_MAX_ITEMS} Bilder; ausgewählt sind ${imageUrls.length}.`,
+      "VALIDATION",
+    );
+  }
+
+  await assertPublishingLimitNotReached(accountId, accessToken, fetcher);
+
+  // Kinder nacheinander: Instagram verarbeitet sie ohnehin einzeln, und so
+  // benennt ein Fehler eindeutig das betroffene Bild.
+  const childrenIds: string[] = [];
+  for (const [index, imageUrl] of imageUrls.entries()) {
+    const mediaLabel = `Bild ${index + 1} von ${imageUrls.length}`;
+    const childId = await createInstagramCarouselItemContainer(
+      accountId,
+      accessToken,
+      { imageUrl },
+      fetcher,
+    );
+    await waitForInstagramContainer(childId, accessToken, fetcher, {
+      delaysMs: options.delaysMs,
+      sleep: options.sleep,
+      mediaLabel,
+    });
+    childrenIds.push(childId);
+  }
+
+  const carouselId = await createInstagramCarouselContainer(
+    accountId,
+    accessToken,
+    { childrenIds, caption: input.caption },
+    fetcher,
+  );
+  const carouselState = await waitForInstagramContainer(carouselId, accessToken, fetcher, {
+    delaysMs: options.delaysMs,
+    sleep: options.sleep,
+    mediaLabel: "das Carousel",
+  });
+  if (carouselState === "PUBLISHED") {
+    return { postId: null, permalink: null, alreadyPublished: true };
+  }
+
+  const published = await publishContainerWithRetry(accountId, accessToken, carouselId, fetcher, {
+    ...options,
+    mediaLabel: "das Carousel",
+  });
+  if (published.alreadyPublished) {
+    return { postId: null, permalink: null, alreadyPublished: true };
+  }
+
+  return persistAndResolve(published.postId, carouselId, accessToken, fetcher, options);
 }

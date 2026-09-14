@@ -551,7 +551,7 @@ describe("Instagram Account und Publishing", () => {
     },
     {
       statusCode: "EXPIRED",
-      message: /Mediencontainer ist abgelaufen/,
+      message: /Mediencontainer für das Bild ist abgelaufen/,
     },
   ]) {
     it(`bricht bei ${scenario.statusCode} ohne media_publish ab`, async () => {
@@ -920,12 +920,11 @@ describe("Sicherheits- und Callback-Verdrahtung", () => {
     assert.match(adminUi, /nicht die erforderliche Veröffentlichungsberechtigung/);
   });
 
-  it("dokumentiert den vorerst einzelnen Bild-Post", () => {
+  it("dokumentiert Einzelbild und Carousel", () => {
     const readme = readFileSync("src/integrations/instagram/README.md", "utf8");
-    assert.match(
-      readme,
-      /Instagram Carousel \/ mehrere Bilder sind noch nicht implementiert/,
-    );
+    assert.match(readme, /Carousel/);
+    assert.match(readme, /is_carousel_item/);
+    assert.ok(!/sind noch nicht implementiert/.test(readme));
   });
 
   it("persistiert die Media ID sofort und sperrt parallele Retries", () => {

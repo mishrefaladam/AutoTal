@@ -36,6 +36,8 @@ export type SocialDraftListItem = {
     /** Bestandsstatus – unabhängig von `active`. */
     status: VehicleStatus;
     primaryImageUrl: string | null;
+    /** Alle Bilder in Galerie-Reihenfolge – zur Auswahl für den Beitrag. */
+    images: { url: string }[];
   };
 };
 
@@ -51,7 +53,7 @@ const DRAFT_INCLUDE = {
       mileageKm: true,
       active: true,
       status: true,
-      images: { orderBy: { position: "asc" }, take: 1, select: { url: true } },
+      images: { orderBy: { position: "asc" }, select: { url: true } },
     },
   },
 } as const;
@@ -114,6 +116,7 @@ function toListItem(draft: DraftWithVehicle): SocialDraftListItem {
       active: draft.vehicle.active,
       status: draft.vehicle.status,
       primaryImageUrl: draft.vehicle.images[0]?.url ?? null,
+      images: draft.vehicle.images.map((image) => ({ url: image.url })),
     },
   };
 }

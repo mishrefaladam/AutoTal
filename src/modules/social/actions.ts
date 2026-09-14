@@ -26,6 +26,12 @@ import {
   buildInstagramCaption,
   buildInstagramHashtags,
 } from "./caption";
+import { imageUnreachable } from "./image-reachability";
+import {
+  INSTAGRAM_MAX_IMAGES,
+  orderSelectedImages,
+  planInstagramImages,
+} from "./publish-images";
 
 /**
  * Workflow für Social-Media-Beiträge (EPIC 7, EPIC 8).
@@ -169,6 +175,15 @@ const updateSchema = z.object({
         .filter(Boolean)
         .slice(0, 30),
     ),
+  /**
+   * Ausgewählte Fahrzeugbilder – als URLs, in beliebiger Reihenfolge; die
+   * Reihenfolge des Beitrags bestimmt später die Galerie des Fahrzeugs.
+   * Fehlt das Feld (ältere Oberfläche), bleibt die Auswahl unverändert.
+   */
+  imageUrls: z
+    .array(z.string().url().max(2048))
+    .max(INSTAGRAM_MAX_IMAGES, `Instagram erlaubt höchstens ${INSTAGRAM_MAX_IMAGES} Bilder je Beitrag.`)
+    .optional(),
 });
 
 export async function updateDraft(
@@ -187,7 +202,10 @@ export async function updateDraft(
 
     const draft = await prisma.socialDraft.findUnique({
       where: { id: parsed.data.draftId },
-      select: { status: true },
+      select: {
+        status: true,
+        vehicle: { select: { images: { select: { url: true } } } },
+      },
     });
 
     if (!draft) {
@@ -202,6 +220,17 @@ export async function updateDraft(
       );
     }
 
+    // Nur Bilder dieses Fahrzeugs – eine fremde URL hat hier nichts verloren.
+    if (parsed.data.imageUrls) {
+      const own = new Set(draft.vehicle.images.map((image) => image.url));
+      const foreign = parsed.data.imageUrls.find((url) => !own.has(url));
+      if (foreign) {
+        return fail("Eines der gewählten Bilder gehört nicht zu diesem Fahrzeug.", {
+          code: "VALIDATION",
+        });
+      }
+    }
+
     // Nach einer Bearbeitung fällt eine bestehende Freigabe zurück auf
     // Entwurf – sonst könnte man den geprüften Text nachträglich austauschen
     // und mit alter Freigabe veröffentlichen.
@@ -210,6 +239,7 @@ export async function updateDraft(
       data: {
         caption: parsed.data.caption,
         hashtags: parsed.data.hashtags,
+        ...(parsed.data.imageUrls ? { imageUrls: parsed.data.imageUrls } : {}),
         status: "DRAFT",
         approvedAt: null,
         approvedByUser: null,
@@ -349,7 +379,6 @@ export async function publishDraft(
           select: {
             images: {
               orderBy: { position: "asc" },
-              take: 1,
               select: { url: true },
             },
           },
@@ -436,19 +465,45 @@ export async function publishDraft(
       );
     }
 
-    const imageUrl = draft.imageUrls[0] ?? draft.vehicle.images[0]?.url;
-
     // ---- Das Bild-Gate ---------------------------------------------------
-    // Instagram verlangt ein Bild. Die Prüfung sitzt bewusst hier und nicht
-    // nur in der UI: Auch ein direkter Aufruf dieser Action kommt ohne Bild
-    // nicht durch.
-    if (!imageUrl) {
+    // Instagram verlangt mindestens ein Bild. Die Prüfung sitzt bewusst hier
+    // und nicht nur in der UI: Auch ein direkter Aufruf dieser Action kommt
+    // ohne Bild nicht durch.
+    //
+    // Ausgewählt ist, was der Entwurf gespeichert hat; fehlt eine Auswahl,
+    // gilt das Titelbild. Die Reihenfolge kommt aus der Galerie: Sortiert der
+    // Händler dort um, folgt der Beitrag. Inzwischen gelöschte Bilder fallen
+    // weg. Ein Bild -> Einzelbild, zwei bis zehn -> Carousel.
+    const galleryUrls = draft.vehicle.images.map((image) => image.url);
+    const savedSelection = orderSelectedImages(draft.imageUrls, galleryUrls);
+    const selectedUrls =
+      savedSelection.length > 0 ? savedSelection : galleryUrls.slice(0, 1);
+    const imagePlan = planInstagramImages(selectedUrls, galleryUrls);
+
+    if (!imagePlan.ok) {
       return fail(
-        "Für dieses Fahrzeug ist kein Bild hinterlegt. Der Text bleibt " +
-          "erhalten; die Veröffentlichung auf Instagram ist erst nach dem " +
-          "Bild-Upload beim Fahrzeug möglich.",
+        galleryUrls.length === 0
+          ? "Für dieses Fahrzeug ist kein Bild hinterlegt. Der Text bleibt " +
+              "erhalten; die Veröffentlichung auf Instagram ist erst nach dem " +
+              "Bild-Upload beim Fahrzeug möglich."
+          : imagePlan.message,
         { code: "VALIDATION" },
       );
+    }
+    const imageUrls = imagePlan.imageUrls;
+
+    // Erreichbar? Instagram holt die Bilder selbst ab – ein gelöschtes Blob
+    // oder ein privater Store scheitert dort erst nach dem Container-Aufruf,
+    // mit einer unklaren Meldung. Hier heißt es "Bild 2 von 4".
+    for (const [index, url] of imageUrls.entries()) {
+      const unreachable = await imageUnreachable(url);
+      if (unreachable) {
+        return fail(
+          `Bild ${index + 1} von ${imageUrls.length} ist für Instagram nicht ` +
+            `erreichbar (${unreachable}). Bitte prüfen Sie die Fahrzeugbilder.`,
+          { code: "VALIDATION" },
+        );
+      }
     }
 
     const fullCaption = [
@@ -485,7 +540,7 @@ export async function publishDraft(
 
     try {
       const result = await publishImagePost(
-        { imageUrl, caption: fullCaption },
+        { imageUrls, caption: fullCaption },
         {
           publishedMediaId: draft.externalPostId,
           publishedPermalink: draft.externalPermalink,
@@ -504,9 +559,9 @@ export async function publishDraft(
         where: { id: draftId },
         data: {
           status: "PUBLISHED",
-          // Festhalten, was tatsächlich veröffentlicht wurde – auch wenn das
-          // Bild erst nach der Generierung dazugekommen ist.
-          imageUrls: [imageUrl],
+          // Festhalten, was tatsächlich veröffentlicht wurde – in der
+          // Reihenfolge, die an Instagram ging.
+          imageUrls,
           publishedAt: new Date(),
           externalPostId: result.postId ?? undefined,
           externalPermalink: result.permalink,

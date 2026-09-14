@@ -101,15 +101,17 @@ describe("Veröffentlichung", () => {
   });
 
   it("bricht ohne Bild ab", () => {
-    assert.match(publish, /if\s*\(!imageUrl\)/);
+    assert.match(publish, /const imagePlan = planInstagramImages\(selectedUrls, galleryUrls\)/);
+    assert.match(publish, /if\s*\(!imagePlan\.ok\)/);
     assert.match(publish, /return fail\(/);
   });
 
   it("berücksichtigt ein nachträglich hochgeladenes Bild", () => {
-    // Sonst bliebe ein vor dem Upload erzeugter Entwurf dauerhaft gesperrt.
+    // Sonst bliebe ein vor dem Upload erzeugter Entwurf dauerhaft gesperrt:
+    // Ohne gespeicherte Auswahl gilt das aktuelle Titelbild.
     assert.match(
       publish,
-      /draft\.imageUrls\[0\]\s*\?\?\s*draft\.vehicle\.images\[0\]\?\.url/,
+      /savedSelection\.length > 0 \? savedSelection : galleryUrls\.slice\(0, 1\)/,
     );
   });
 

@@ -23,6 +23,7 @@ import { AdminCard } from "@/components/admin/admin-page-header";
 import { VehicleFilterBar } from "@/components/admin/vehicle-filter-bar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { formatEuro, formatKilometers } from "@/lib/money";
@@ -36,6 +37,10 @@ import {
   revokeApproval,
   updateDraft,
 } from "@/modules/social/actions";
+import {
+  INSTAGRAM_MAX_IMAGES,
+  orderSelectedImages,
+} from "@/modules/social/publish-images";
 import type { SocialDraftListItem } from "@/modules/social/repository";
 import type { VehicleFilterOptions } from "@/modules/vehicles/admin-repository";
 import {
@@ -487,13 +492,28 @@ function DraftCard({
   const published = draft.status === "PUBLISHED";
 
   /*
-   * Der Entwurf hält den Bildstand vom Zeitpunkt der Generierung fest. Wurde
-   * das Bild erst danach hochgeladen, ist der Beitrag trotzdem
-   * veröffentlichbar – `publishDraft` greift dann auf das aktuelle
-   * Fahrzeugbild zurück. Beide Quellen zählen deshalb auch hier.
+   * Bilder des Beitrags – dieselbe Regel wie in `publishDraft`: Die Galerie
+   * gibt die Reihenfolge vor (Titelbild zuerst), der Entwurf die Auswahl.
+   * Ohne gespeicherte Auswahl gilt das Titelbild; ein inzwischen gelöschtes
+   * Bild fällt weg. Ein erst nach der Generierung hochgeladenes Titelbild
+   * zählt deshalb ebenfalls.
    */
-  const hasImage =
-    draft.imageUrls.length > 0 || draft.vehicle.primaryImageUrl !== null;
+  const galleryUrls = draft.vehicle.images.map((image) => image.url);
+  const savedSelection = orderSelectedImages(draft.imageUrls, galleryUrls);
+  const effectiveSelection =
+    savedSelection.length > 0 ? savedSelection : galleryUrls.slice(0, 1);
+  const [selectedUrls, setSelectedUrls] = useState<string[]>(effectiveSelection);
+
+  const hasImage = effectiveSelection.length > 0;
+  const tooManySelected = selectedUrls.length > INSTAGRAM_MAX_IMAGES;
+
+  function toggleImage(url: string, checked: boolean) {
+    setSelectedUrls((current) =>
+      checked
+        ? galleryUrls.filter((candidate) => candidate === url || current.includes(candidate))
+        : current.filter((candidate) => candidate !== url),
+    );
+  }
 
   function run(
     action: () => Promise<
@@ -634,14 +654,35 @@ function DraftCard({
               </p>
             </div>
 
+            <ImageSelection
+              draftId={draft.id}
+              galleryUrls={galleryUrls}
+              selectedUrls={selectedUrls}
+              onToggle={toggleImage}
+              vehicleId={draft.vehicle.id}
+            />
+
             <div className="flex flex-wrap gap-2">
               <Button
                 variant="brand"
                 size="xl"
-                disabled={pending}
+                disabled={pending || selectedUrls.length === 0 || tooManySelected}
+                title={
+                  selectedUrls.length === 0
+                    ? "Bitte mindestens ein Bild auswählen."
+                    : tooManySelected
+                      ? `Instagram erlaubt höchstens ${INSTAGRAM_MAX_IMAGES} Bilder je Beitrag.`
+                      : undefined
+                }
                 onClick={() =>
                   run(
-                    () => updateDraft({ draftId: draft.id, caption, hashtags }),
+                    () =>
+                      updateDraft({
+                        draftId: draft.id,
+                        caption,
+                        hashtags,
+                        imageUrls: orderSelectedImages(selectedUrls, galleryUrls),
+                      }),
                     () => setEditing(false),
                   )
                 }
@@ -665,6 +706,7 @@ function DraftCard({
                 onClick={() => {
                   setCaption(draft.caption);
                   setHashtags(draft.hashtags.join(" "));
+                  setSelectedUrls(effectiveSelection);
                   setEditing(false);
                 }}
               >
@@ -682,6 +724,13 @@ function DraftCard({
               <p className="text-brand-strong mt-2.5 text-sm">
                 {draft.hashtags.map((tag) => `#${tag}`).join(" ")}
               </p>
+            )}
+
+            {effectiveSelection.length > 0 && (
+              <SelectedImagesSummary
+                selectedUrls={effectiveSelection}
+                galleryCount={galleryUrls.length}
+              />
             )}
           </>
         )}
@@ -815,5 +864,149 @@ function DraftCard({
         </p>
       )}
     </article>
+  );
+}
+
+/** Anzeige der gewählten Bilder am fertigen Entwurf – in Beitragsreihenfolge. */
+function SelectedImagesSummary({
+  selectedUrls,
+  galleryCount,
+}: {
+  selectedUrls: readonly string[];
+  galleryCount: number;
+}) {
+  return (
+    <div className="mt-3">
+      <p className="text-muted-foreground text-xs">
+        Instagram-Bilder: {selectedUrls.length} von {galleryCount}
+        {selectedUrls.length > 1 ? " · als Carousel" : " · Einzelbild"}
+      </p>
+      <ol className="mt-1.5 flex flex-wrap gap-1.5">
+        {selectedUrls.map((url, index) => (
+          <li
+            key={url}
+            className="bg-muted relative size-12 overflow-hidden rounded-md"
+          >
+            <Image src={url} alt="" fill sizes="48px" className="object-cover" />
+            <span className="bg-background/85 absolute bottom-0.5 left-0.5 rounded px-1 text-[10px] font-medium tabular-nums">
+              {index + 1}
+            </span>
+          </li>
+        ))}
+      </ol>
+    </div>
+  );
+}
+
+/**
+ * Bildauswahl beim Bearbeiten.
+ *
+ * Reihenfolge = Galerie des Fahrzeugs; das Titelbild steht vorne und ist
+ * vorausgewählt. Die Nummer zeigt die Position im Beitrag, nicht in der
+ * Galerie – wer Bild 2 abwählt, sieht Bild 3 als "2" rutschen. Ein Bild
+ * wird nur veröffentlicht, wenn es hier gewählt ist; mehr als Instagrams
+ * Höchstzahl lässt sich nicht speichern.
+ */
+function ImageSelection({
+  draftId,
+  galleryUrls,
+  selectedUrls,
+  onToggle,
+  vehicleId,
+}: {
+  draftId: string;
+  galleryUrls: readonly string[];
+  selectedUrls: readonly string[];
+  onToggle: (url: string, checked: boolean) => void;
+  vehicleId: string;
+}) {
+  if (galleryUrls.length === 0) {
+    return (
+      <div className="space-y-2">
+        <Label>Instagram-Bilder</Label>
+        <p className="text-muted-foreground text-sm">
+          {MISSING_IMAGE_NOTICE}{" "}
+          <Link
+            href={`/admin/fahrzeuge/${vehicleId}`}
+            className="underline underline-offset-2"
+          >
+            Bild hochladen
+          </Link>
+        </p>
+      </div>
+    );
+  }
+
+  const tooMany = selectedUrls.length > INSTAGRAM_MAX_IMAGES;
+  const none = selectedUrls.length === 0;
+
+  return (
+    <fieldset className="space-y-2">
+      <legend className="text-sm font-medium">Instagram-Bilder</legend>
+      <p className="text-muted-foreground text-xs">
+        {selectedUrls.length} von {galleryUrls.length} ausgewählt
+        {selectedUrls.length > 1 && !tooMany && " · wird als Carousel veröffentlicht"}
+        {" · "}höchstens {INSTAGRAM_MAX_IMAGES} je Beitrag
+      </p>
+
+      <ul className="grid grid-cols-3 gap-2 sm:grid-cols-4 md:grid-cols-5">
+        {galleryUrls.map((url, index) => {
+          const position = selectedUrls.indexOf(url);
+          const checked = position >= 0;
+          const id = `image-${draftId}-${index}`;
+
+          return (
+            <li key={url}>
+              <label
+                htmlFor={id}
+                className={cn(
+                  "border-border relative block cursor-pointer overflow-hidden rounded-lg border",
+                  checked && "ring-brand ring-2",
+                )}
+              >
+                <div className="bg-muted relative aspect-square">
+                  <Image
+                    src={url}
+                    alt={index === 0 ? "Titelbild" : `Bild ${index + 1}`}
+                    fill
+                    sizes="(min-width: 768px) 160px, 33vw"
+                    className="object-cover"
+                  />
+                </div>
+                <div className="bg-background/90 absolute top-1 left-1 rounded p-0.5">
+                  <Checkbox
+                    id={id}
+                    checked={checked}
+                    onCheckedChange={(value) => onToggle(url, value === true)}
+                    aria-label={index === 0 ? "Titelbild" : `Bild ${index + 1}`}
+                  />
+                </div>
+                {checked && (
+                  <span className="bg-brand text-brand-foreground absolute top-1 right-1 rounded px-1.5 text-xs font-medium tabular-nums">
+                    {position + 1}
+                  </span>
+                )}
+                <span className="text-muted-foreground block truncate px-1.5 py-1 text-[11px]">
+                  {index === 0 ? "Titelbild" : `Bild ${index + 1}`}
+                </span>
+              </label>
+            </li>
+          );
+        })}
+      </ul>
+
+      {none && (
+        <p className="text-warning text-xs">
+          Ohne Bild lässt sich der Beitrag nicht veröffentlichen. Bitte
+          mindestens ein Bild auswählen.
+        </p>
+      )}
+      {tooMany && (
+        <p className="text-destructive text-xs">
+          Instagram erlaubt höchstens {INSTAGRAM_MAX_IMAGES} Bilder je Beitrag;
+          ausgewählt sind {selectedUrls.length}. Bitte Bilder abwählen.
+        </p>
+      )}
+    </fieldset>
   );
 }

@@ -13,6 +13,7 @@ import {
   exchangeInstagramLongLivedToken,
   getInstagramProfile,
   hasRequiredInstagramScopes,
+  publishInstagramCarousel,
   publishInstagramImage,
   refreshInstagramLongLivedToken,
   requireInstagramApiConfig,
@@ -316,10 +317,16 @@ export type PublishResult = {
   alreadyPublished: boolean;
 };
 
-/** Veröffentlicht das erste Bild eines freigegebenen Social-Media-Entwurfs. */
+/**
+ * Veröffentlicht die Bilder eines freigegebenen Social-Media-Entwurfs.
+ *
+ * Ein Bild geht den bestehenden Einzelbild-Weg; zwei bis zehn werden zum
+ * Carousel. Welche Bilder und in welcher Reihenfolge, entscheidet der
+ * Aufrufer (modules/social/publish-images) – hier wird nur noch gesendet.
+ */
 export async function publishImagePost(
   input: {
-    imageUrl: string;
+    imageUrls: readonly string[];
     caption: string;
   },
   options: {
@@ -328,25 +335,43 @@ export async function publishImagePost(
     onPublished?: (postId: string) => Promise<void>;
   } = {},
 ): Promise<PublishResult> {
+  if (input.imageUrls.length === 0) {
+    throw new UserFacingError(
+      "Für diesen Beitrag ist kein Bild ausgewählt.",
+      "VALIDATION",
+    );
+  }
+
   // Erzwingt eine vollstaendige Konfiguration, bevor externe Aufrufe beginnen.
   instagramConfig();
   const { accessToken, accountId } = await loadCredential();
 
-  const result = await publishInstagramImage(
-    {
-      accountId,
-      accessToken,
-      ...input,
-      publishedMediaId: options.publishedMediaId,
-      publishedPermalink: options.publishedPermalink,
-    },
-    fetch,
-    { onPublished: options.onPublished },
-  );
+  const common = {
+    accountId,
+    accessToken,
+    caption: input.caption,
+    publishedMediaId: options.publishedMediaId,
+    publishedPermalink: options.publishedPermalink,
+  };
+
+  const result =
+    input.imageUrls.length === 1
+      ? await publishInstagramImage(
+          { ...common, imageUrl: input.imageUrls[0] },
+          fetch,
+          { onPublished: options.onPublished },
+        )
+      : await publishInstagramCarousel(
+          { ...common, imageUrls: input.imageUrls },
+          fetch,
+          { onPublished: options.onPublished },
+        );
 
   logger.info("Instagram-Beitrag veröffentlicht", {
     postId: result.postId,
     alreadyPublished: result.alreadyPublished,
+    imageCount: input.imageUrls.length,
+    mode: input.imageUrls.length === 1 ? "single" : "carousel",
   });
   return result;
 }
