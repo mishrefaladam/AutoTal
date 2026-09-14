@@ -1030,10 +1030,7 @@ export async function publishInstagramImage(
     publishedPermalink?: string | null;
   },
   fetcher: Fetcher = fetch,
-  options: ContainerPollingOptions & {
-    retryDelaysMs?: readonly number[];
-    onPublished?: (postId: string) => Promise<void>;
-  } = {},
+  options: PublishOptions = {},
 ): Promise<InstagramPublishResult> {
   const { accountId, accessToken } = input;
 
@@ -1047,6 +1044,7 @@ export async function publishInstagramImage(
 
   await assertPublishingLimitNotReached(accountId, accessToken, fetcher);
 
+  options.onPhase?.("images");
   const containerId = await createInstagramImageContainer(
     accountId,
     accessToken,
@@ -1064,6 +1062,7 @@ export async function publishInstagramImage(
     return { postId: null, permalink: null, alreadyPublished: true };
   }
 
+  options.onPhase?.("publish");
   const published = await publishContainerWithRetry(
     accountId,
     accessToken,
@@ -1078,10 +1077,30 @@ export async function publishInstagramImage(
   return persistAndResolve(published.postId, containerId, accessToken, fetcher, options);
 }
 
+/**
+ * Die Schritte einer Veröffentlichung, wie die Oberfläche sie benennt.
+ * Gemeldet wird der tatsächliche Beginn eines Schritts – kein geschätzter
+ * Fortschritt.
+ */
+export type InstagramPublishPhase = "images" | "carousel" | "publish";
+
 type PublishOptions = ContainerPollingOptions & {
   retryDelaysMs?: readonly number[];
   onPublished?: (postId: string) => Promise<void>;
+  onPhase?: (phase: InstagramPublishPhase) => void;
 };
+
+/**
+ * Erster Status-Poll ohne Vorwartezeit.
+ *
+ * Aus den Production-Timings: Das Anlegen der Kind-Container dauert je
+ * Aufruf mehrere Sekunden, weil Meta das Bild dabei selbst lädt. Wenn das
+ * letzte Kind angelegt ist, sind die ersten längst fertig – die Sekunde vor
+ * dem ersten Poll wartete auf nichts. Die weiteren Abstände bleiben.
+ */
+function withoutInitialWait(delaysMs: readonly number[]): readonly number[] {
+  return delaysMs.length > 0 ? [0, ...delaysMs.slice(1)] : delaysMs;
+}
 
 /**
  * `media_publish` mit genau einem kontrollierten Retry – und nur für Metas
@@ -1225,6 +1244,11 @@ export async function publishInstagramCarousel(
     await measure("quotaCheck", () =>
       assertPublishingLimitNotReached(accountId, accessToken, fetcher),
     );
+    const pollDelaysMs = withoutInitialWait(
+      options.delaysMs ?? INSTAGRAM_CONTAINER_POLL_DELAYS_MS,
+    );
+
+    options.onPhase?.("images");
     const childrenIds = await measure("childCreation", () =>
       mapChildren(imageUrls, async (imageUrl, index) => {
         try {
@@ -1250,8 +1274,13 @@ export async function publishInstagramCarousel(
       }),
     );
     await measure("childPolling", () =>
-      waitForInstagramChildren(childrenIds, accessToken, fetcher, options),
+      waitForInstagramChildren(childrenIds, accessToken, fetcher, {
+        ...options,
+        delaysMs: pollDelaysMs,
+      }),
     );
+
+    options.onPhase?.("carousel");
     const carouselId = await measure("parentCreation", () =>
       createInstagramCarouselContainer(
         accountId, accessToken, { childrenIds, caption: input.caption }, fetcher,
@@ -1260,6 +1289,7 @@ export async function publishInstagramCarousel(
     const carouselState = await measure("parentPolling", () =>
       waitForInstagramContainer(carouselId, accessToken, fetcher, {
         ...options,
+        delaysMs: pollDelaysMs,
         mediaLabel: "das Carousel",
       }),
     );
@@ -1268,6 +1298,7 @@ export async function publishInstagramCarousel(
       return { postId: null, permalink: null, alreadyPublished: true };
     }
 
+    options.onPhase?.("publish");
     const published = await measure("mediaPublish", () =>
       publishContainerWithRetry(accountId, accessToken, carouselId, fetcher, {
         ...options,

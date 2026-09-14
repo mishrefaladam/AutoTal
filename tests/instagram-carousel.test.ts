@@ -678,8 +678,11 @@ describe("Vorprüfung und Logging", () => {
     const reach = readFileSync("src/modules/social/image-reachability.ts", "utf8");
     assert.match(reach, /method: "HEAD"/);
     assert.match(reach, /image\\\/jpeg/);
-    assert.match(actions, /for \(const \[index, url\] of imageUrls\.entries\(\)\)/);
-    assert.match(actions, /Bild \$\{index \+ 1\} von \$\{imageUrls\.length\} ist für Instagram nicht/);
+    // Gleichzeitig, nicht nacheinander – gemeldet wird das erste Bild in
+    // Beitragsreihenfolge.
+    assert.match(actions, /await Promise\.all\(imageUrls\.map\(\(url\) => imageUnreachable\(url\)\)\)/);
+    assert.match(actions, /reachability\.findIndex\(\(problem\) => problem !== null\)/);
+    assert.match(actions, /Bild \$\{unreachableIndex \+ 1\} von \$\{imageUrls\.length\} ist für Instagram nicht/);
     // Nur URLs aus der Datenbank – die Auswahl wird gegen die Galerie geprüft.
     assert.match(actions, /const foreign = parsed\.data\.imageUrls\.find\(\(url\) => !own\.has\(url\)\)/);
   });
@@ -713,6 +716,112 @@ describe("Vorprüfung und Logging", () => {
         const imageUrl = call.params?.get("image_url");
         if (imageUrl) assert.ok(!imageUrl.includes(SECRET));
       }
+    });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Zwischenstand und Wartezeiten
+// ---------------------------------------------------------------------------
+
+describe("Zwischenstand und Wartezeiten", () => {
+  it("meldet die Schritte in der Reihenfolge, in der sie tatsächlich beginnen", async () => {
+    await withMutedConsole(async () => {
+      const phases: string[] = [];
+      const { fetcher, calls } = createFetchSequence(happyCarousel(2));
+      await publishInstagramCarousel(carouselInput(URLS.slice(0, 2)), fetcher, {
+        ...FAST,
+        onPhase: (phase) => phases.push(`${phase}@${calls.length}`),
+      });
+      // images: vor dem ersten Kind (nach dem Limit-Check = 1 Aufruf),
+      // carousel: nach 2 Kindern + 2 Polls, publish: nach Parent + Poll.
+      assert.deepEqual(phases, ["images@1", "carousel@5", "publish@7"]);
+    });
+  });
+
+  it("meldet beim Einzelbild nur Bild und Veröffentlichung", async () => {
+    await withMutedConsole(async () => {
+      const phases: string[] = [];
+      const { fetcher } = createFetchSequence([
+        { body: {} },
+        { body: { id: "container-id" } },
+        { body: { status_code: "FINISHED" } },
+        { body: { id: "published-media-id" } },
+        { body: { permalink: "https://www.instagram.com/p/example/" } },
+      ]);
+      await publishInstagramImage(
+        { ...carouselInput([URLS[0]]), imageUrl: URLS[0] },
+        fetcher,
+        { ...FAST, onPhase: (phase) => phases.push(phase) },
+      );
+      assert.deepEqual(phases, ["images", "publish"]);
+    });
+  });
+
+  it("wartet vor dem ersten Status-Poll nicht – die Kinder sind beim Anlegen längst fertig", async () => {
+    await withMutedConsole(async () => {
+      const sleeps: number[] = [];
+      const { fetcher } = createFetchSequence(happyCarousel(3));
+      await publishInstagramCarousel(carouselInput(URLS.slice(0, 3)), fetcher, {
+        delaysMs: [1_000, 1_500, 2_000],
+        retryDelaysMs: [0],
+        sleep: async (ms) => {
+          sleeps.push(ms);
+        },
+      });
+      // Eine Runde für die Kinder, eine für das Carousel – beide ohne Vorwartezeit.
+      assert.deepEqual(sleeps, [0, 0]);
+    });
+  });
+
+  it("behält die Abstände zwischen weiteren Polls bei", async () => {
+    await withMutedConsole(async () => {
+      const sleeps: number[] = [];
+      const { fetcher } = createFetchSequence([
+        { body: {} },
+        { body: { id: "child-1" } },
+        { body: { id: "child-2" } },
+        { body: { status_code: "IN_PROGRESS" } },
+        { body: { status_code: "FINISHED" } },
+        { body: { status_code: "FINISHED" } },
+        { body: { id: "carousel-id" } },
+        { body: { status_code: "IN_PROGRESS" } },
+        { body: { status_code: "FINISHED" } },
+        { body: { id: "published-media-id" } },
+        { body: { permalink: "https://www.instagram.com/p/example/" } },
+      ]);
+      await publishInstagramCarousel(carouselInput(URLS.slice(0, 2)), fetcher, {
+        delaysMs: [1_000, 1_500, 2_000],
+        retryDelaysMs: [0],
+        sleep: async (ms) => {
+          sleeps.push(ms);
+        },
+      });
+      assert.deepEqual(sleeps, [0, 1_500, 0, 1_500]);
+    });
+  });
+
+  it("lässt den Einzelbild-Weg unverändert – dort bleibt die erste Wartezeit", async () => {
+    await withMutedConsole(async () => {
+      const sleeps: number[] = [];
+      const { fetcher } = createFetchSequence([
+        { body: {} },
+        { body: { id: "container-id" } },
+        { body: { status_code: "FINISHED" } },
+        { body: { id: "published-media-id" } },
+        { body: { permalink: "https://www.instagram.com/p/example/" } },
+      ]);
+      await publishInstagramImage(
+        { ...carouselInput([URLS[0]]), imageUrl: URLS[0] },
+        fetcher,
+        {
+          delaysMs: [1_000, 1_500],
+          sleep: async (ms) => {
+            sleeps.push(ms);
+          },
+        },
+      );
+      assert.deepEqual(sleeps, [1_000]);
     });
   });
 });

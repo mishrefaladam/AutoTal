@@ -28,6 +28,7 @@ import {
   buildInstagramHashtags,
 } from "./caption";
 import { imageUnreachable } from "./image-reachability";
+import type { PublishHooks } from "./publish-hooks";
 import {
   EXTERNALLY_DELETED_NOTICE,
   reconcilePublishedDraft,
@@ -387,6 +388,7 @@ export async function revokeApproval(
 
 export async function publishDraft(
   draftId: string,
+  hooks: PublishHooks = {},
 ): Promise<ActionResult<{ message: string; permalink: string | null }>> {
   try {
     const admin = await requireAdminForAction();
@@ -531,16 +533,18 @@ export async function publishDraft(
 
     // Erreichbar? Instagram holt die Bilder selbst ab – ein gelöschtes Blob
     // oder ein privater Store scheitert dort erst nach dem Container-Aufruf,
-    // mit einer unklaren Meldung. Hier heißt es "Bild 2 von 4".
-    for (const [index, url] of imageUrls.entries()) {
-      const unreachable = await imageUnreachable(url);
-      if (unreachable) {
-        return fail(
-          `Bild ${index + 1} von ${imageUrls.length} ist für Instagram nicht ` +
-            `erreichbar (${unreachable}). Bitte prüfen Sie die Fahrzeugbilder.`,
-          { code: "VALIDATION" },
-        );
-      }
+    // mit einer unklaren Meldung. Hier heißt es "Bild 2 von 4". Die HEADs
+    // laufen gleichzeitig – zehn nacheinander wären eine halbe Sekunde
+    // Wartezeit, die niemandem nützt; gemeldet wird das erste Bild in
+    // Beitragsreihenfolge.
+    const reachability = await Promise.all(imageUrls.map((url) => imageUnreachable(url)));
+    const unreachableIndex = reachability.findIndex((problem) => problem !== null);
+    if (unreachableIndex >= 0) {
+      return fail(
+        `Bild ${unreachableIndex + 1} von ${imageUrls.length} ist für Instagram nicht ` +
+          `erreichbar (${reachability[unreachableIndex]}). Bitte prüfen Sie die Fahrzeugbilder.`,
+        { code: "VALIDATION" },
+      );
     }
 
     const fullCaption = [
@@ -581,6 +585,7 @@ export async function publishDraft(
         {
           publishedMediaId: draft.externalPostId,
           publishedPermalink: draft.externalPermalink,
+          onPhase: hooks.onPhase,
           onPublished: async (postId) => {
             // Direkt nach Metas erfolgreicher Antwort persistieren, noch vor
             // der optionalen Permalink-Abfrage und der finalen Statuspflege.
@@ -652,6 +657,7 @@ export async function publishDraft(
  */
 export async function retryPublish(
   draftId: string,
+  hooks: PublishHooks = {},
 ): Promise<ActionResult<{ message: string; permalink: string | null }>> {
   try {
     await requireAdminForAction();
@@ -673,7 +679,7 @@ export async function retryPublish(
     const deleted = deletedExternally(draft.status);
     if (deleted) return deleted;
 
-    if (draft.externalPostId) return publishDraft(draftId);
+    if (draft.externalPostId) return publishDraft(draftId, hooks);
 
     if (draft.status !== "FAILED") {
       return fail(
@@ -712,7 +718,7 @@ export async function retryPublish(
       );
     }
 
-    return publishDraft(draftId);
+    return publishDraft(draftId, hooks);
   } catch (error) {
     return toActionResult(error);
   }
@@ -791,6 +797,7 @@ export async function checkInstagramStatus(
  */
 export async function republishDeletedDraft(
   draftId: string,
+  hooks: PublishHooks = {},
 ): Promise<ActionResult<{ message: string; permalink: string | null }>> {
   try {
     const admin = await requireAdminForAction();
@@ -876,7 +883,7 @@ export async function republishDeletedDraft(
       previousPostId: draft.externalPostId,
     });
 
-    return publishDraft(draftId);
+    return publishDraft(draftId, hooks);
   } catch (error) {
     return toActionResult(error);
   }

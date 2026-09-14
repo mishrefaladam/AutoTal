@@ -9,6 +9,7 @@ import { UserFacingError } from "@/lib/result";
 import {
   INSTAGRAM_PUBLISH_PERMISSION_MESSAGE,
   type InstagramMediaExistence,
+  type InstagramPublishPhase,
   buildInstagramAuthorizationUrl,
   exchangeInstagramAuthorizationCode,
   exchangeInstagramLongLivedToken,
@@ -25,6 +26,7 @@ export {
   INSTAGRAM_PUBLISH_OUTCOME_UNKNOWN_MESSAGE,
   InstagramPublishOutcomeUnknownError,
   type InstagramMediaExistence,
+  type InstagramPublishPhase,
 } from "./protocol";
 
 /**
@@ -339,6 +341,8 @@ export async function publishImagePost(
     publishedMediaId?: string | null;
     publishedPermalink?: string | null;
     onPublished?: (postId: string) => Promise<void>;
+    /** Beginn eines Schritts – für die Anzeige während der Veröffentlichung. */
+    onPhase?: (phase: InstagramPublishPhase) => void;
   } = {},
 ): Promise<PublishResult> {
   if (input.imageUrls.length === 0) {
@@ -365,12 +369,12 @@ export async function publishImagePost(
       ? await publishInstagramImage(
           { ...common, imageUrl: input.imageUrls[0] },
           fetch,
-          { onPublished: options.onPublished },
+          { onPublished: options.onPublished, onPhase: options.onPhase },
         )
       : await publishInstagramCarousel(
           { ...common, imageUrls: input.imageUrls },
           fetch,
-          { onPublished: options.onPublished },
+          { onPublished: options.onPublished, onPhase: options.onPhase },
         );
 
   logger.info("Instagram-Beitrag veröffentlicht", {

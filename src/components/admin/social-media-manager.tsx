@@ -2,6 +2,7 @@
 
 import Image from "next/image";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 import {
   Check,
@@ -35,12 +36,14 @@ import {
   checkInstagramStatus,
   deleteDraft,
   generateCaption,
-  publishDraft,
-  republishDeletedDraft,
-  retryPublish,
   revokeApproval,
   updateDraft,
 } from "@/modules/social/actions";
+import {
+  PUBLISH_PHASE_LABELS,
+  type PublishMode,
+  publishWithProgress,
+} from "@/modules/social/publish-client";
 import {
   INSTAGRAM_MAX_IMAGES,
   orderSelectedImages,
@@ -57,6 +60,7 @@ import {
   formatMonthYear,
 } from "@/modules/vehicles/labels";
 import type { VehicleStatus } from "@/generated/prisma/enums";
+import type { InstagramPublishPhase } from "@/integrations/instagram/protocol";
 
 /**
  * Beitragsassistent (EPIC 7, EPIC 8).
@@ -495,7 +499,9 @@ function DraftCard({
   const [caption, setCaption] = useState(draft.caption);
   const [hashtags, setHashtags] = useState(draft.hashtags.join(" "));
   const [pending, startTransition] = useTransition();
-  const [publishing, setPublishing] = useState(false);
+  const router = useRouter();
+  /** null = keine Veröffentlichung im Gang; sonst der zuletzt gemeldete Schritt. */
+  const [publishPhase, setPublishPhase] = useState<InstagramPublishPhase | "starting" | null>(null);
 
   const status = STATUS_STYLES[draft.status];
   const published = draft.status === "PUBLISHED";
@@ -542,6 +548,22 @@ function DraftCard({
         onFeedback({ kind: "error", message: result.error });
       }
     });
+  }
+
+  /** Alle drei Wege – veröffentlichen, erneut versuchen, neu veröffentlichen. */
+  function publish(mode: PublishMode) {
+    setPublishPhase("starting");
+    run(
+      async () => {
+        try {
+          return await publishWithProgress(draft.id, mode, setPublishPhase);
+        } finally {
+          setPublishPhase(null);
+          // Die Route revalidiert die Seite; der Browser muss sie neu holen.
+          router.refresh();
+        }
+      },
+    );
   }
 
   return (
@@ -771,11 +793,21 @@ function DraftCard({
       </div>
 
       {/* Aktionen */}
-      {publishing && (
-        <p role="status" className="text-muted-foreground mt-4 text-sm break-words">
-          {effectiveSelection.length > 1
-            ? "Instagram-Veröffentlichung läuft: Bilder vorbereiten, Carousel erstellen, Beitrag veröffentlichen."
-            : "Instagram-Veröffentlichung läuft: Bild vorbereiten, Beitrag veröffentlichen."}
+      {/*
+        * Zwischenstand während der Veröffentlichung – nur, was der Server
+        * tatsächlich gemeldet hat. Keine Prozentwerte, keine Schätzung.
+        */}
+      {publishPhase && (
+        <p
+          role="status"
+          className="text-muted-foreground mt-4 flex items-center gap-2 text-sm"
+        >
+          <Loader2 className="size-4 shrink-0 animate-spin" aria-hidden="true" />
+          {publishPhase === "starting"
+            ? "Instagram-Veröffentlichung wird gestartet …"
+            : publishPhase === "images" && effectiveSelection.length === 1
+              ? "Bild wird vorbereitet …"
+              : PUBLISH_PHASE_LABELS[publishPhase]}
         </p>
       )}
       {!editing && (
@@ -824,14 +856,7 @@ function DraftCard({
                       ? undefined
                       : "Bitte zuerst unter „Integrationen“ ein Instagram-Konto verbinden."
                 }
-                onClick={() => run(async () => {
-                  setPublishing(true);
-                  try {
-                    return await publishDraft(draft.id);
-                  } finally {
-                    setPublishing(false);
-                  }
-                })}
+                onClick={() => publish("publish")}
               >
                 {pending ? (
                   <Loader2
@@ -864,7 +889,7 @@ function DraftCard({
               size="xl"
               disabled={pending || !instagramConnected || !hasImage}
               title={hasImage ? undefined : MISSING_IMAGE_NOTICE}
-              onClick={() => run(() => retryPublish(draft.id))}
+              onClick={() => publish("retry")}
             >
               {pending ? (
                 <Loader2
@@ -926,7 +951,7 @@ function DraftCard({
                     ? undefined
                     : "Bitte zuerst unter „Integrationen“ ein Instagram-Konto verbinden."
               }
-              onClick={() => run(() => republishDeletedDraft(draft.id))}
+              onClick={() => publish("republish")}
             >
               {pending ? (
                 <Loader2

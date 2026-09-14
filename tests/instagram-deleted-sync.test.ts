@@ -337,7 +337,9 @@ describe("8. Oberfläche", () => {
   it("zeigt 'Auf Instagram gelöscht' mit Hinweis und beiden Aktionen", () => {
     assert.match(manager, /DELETED_EXTERNALLY: \{\s*label: "Auf Instagram gelöscht"/);
     assert.match(manager, /Der Beitrag wurde auf Instagram nicht mehr gefunden\./);
-    assert.match(manager, /republishDeletedDraft\(draft\.id\)/);
+    assert.match(manager, /onClick=\{\(\) => publish\("republish"\)\}/);
+    const client = readFileSync("src/modules/social/publish-client.ts", "utf8");
+    assert.match(client, /if \(mode === "republish"\) return republishDeletedDraft\(draftId\);/);
     assert.match(manager, /Erneut veröffentlichen/);
     assert.match(manager, /deletedExternally \? "Aus AutoTal entfernen" : "Löschen"/);
   });
@@ -382,7 +384,7 @@ describe("Erneut veröffentlichen und Doppelpost-Schutz", () => {
     assert.match(release, /previousExternalPostIds: \[\.\.\.draft\.previousExternalPostIds, draft\.externalPostId\]/);
     assert.match(release, /status: "APPROVED"/);
     assert.match(release, /released\.count !== 1/);
-    assert.match(release, /return publishDraft\(draftId\)/);
+    assert.match(release, /return publishDraft\(draftId, hooks\)/);
     // publishDraft speichert die neue ID sofort und setzt PUBLISHED.
     assert.match(publish, /data: \{ externalPostId: postId \}/);
     assert.match(publish, /externalPostId: result\.postId \?\? undefined/);
